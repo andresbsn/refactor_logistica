@@ -1,0 +1,7 @@
+﻿[dotenv@17.3.1] injecting env (21) from .env -- tip: ÔÜÖ´©Å  specify custom .env file path with { path: '/custom/path/.env' }
+[dotenv@17.3.1] injecting env (0) from .env -- tip: ÔÜÖ´©Å  override existing env vars with { override: true }
+Database pool initialized for host: 149.50.142.36, schema: sistema147
+Testing Device listing and matching...
+[ypf.session] Session created successfully
+Session Step C activated.
+[ypf.session] Session created successfully

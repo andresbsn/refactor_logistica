@@ -1,0 +1,4 @@
+Error: Location World session response does not contain a session token
+    at Object.createLocationWorldSession (C:\Users\Modernizacion\Documents\logistica-inteligente-refactor\backend\src\services\ypf.service.js:318:15)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async testSession (C:\Users\Modernizacion\Documents\logistica-inteligente-refactor\backend\test-ypf-session.js:17:25)

@@ -1,0 +1,8 @@
+﻿[dotenv@17.3.1] injecting env (21) from .env -- tip: ­ƒöÉ prevent building .env in docker: https://dotenvx.com/prebuild
+[dotenv@17.3.1] injecting env (0) from .env -- tip: ­ƒöÉ prevent committing .env to code: https://dotenvx.com/precommit
+Database pool initialized for host: 149.50.142.36, schema: sistema147
+Testing Device listing with Step A token...
+[ypf.session] Session created successfully
+Session Step C activated.
+Response status: 200
+Response data keys: [ 'records', 'content' ]

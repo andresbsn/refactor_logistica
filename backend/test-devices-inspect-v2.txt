@@ -1,0 +1,53 @@
+﻿[dotenv@17.3.1] injecting env (21) from .env -- tip: ÔÜÖ´©Å  write to custom object with { processEnv: myObject }
+[dotenv@17.3.1] injecting env (0) from .env -- tip: ­ƒøá´©Å  run anywhere with `dotenvx run -- yourcommand`
+Database pool initialized for host: 149.50.142.36, schema: sistema147
+Testing Device listing and matching...
+node : (node:13616) 
+DeprecationWarning: Calling 
+client.query() when the client 
+is already executing a query is 
+deprecated and will be removed 
+in pg@9.0. Use asycn/await or 
+an external async flow control 
+mechanism instead.
+En línea: 1 Carácter: 1
++ node test-lw-devices.js *>&1 
+| Out-File -FilePath 
+test-devices-inspec ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : N 
+   otSpecified: ((node:13616)   
+  De...hanism instead.:String   
+ ) [], RemoteException
+    + FullyQualifiedErrorId : N 
+   ativeCommandError
+ 
+(Use `node --trace-deprecation 
+...` to show where the warning 
+was created)
+[ypf.request] POST https://mag.ypf.com/auth/oauth/v2/token
+[ypf.request] POST https://customer-api.location-world.com/v1/fleet/ypfruta/sessions/3party-jwt
+[ypf.request] Auth: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI...
+[ypf.session] Session created successfully
+Session Step C activated.
+[ypf.request] GET https://customer-api.location-world.com/v1/undefined/undefined/users/CfDJ8COUpcZAPylPuQoaNpKGwysUoGrWOPtwW5lT0j-KtGzrNgrt8AiwbFxHQzmdGFeT1mUPj9Ec8V6Qp6x2Lij8kMCemnXUnC9MPUpFdtaiOttRoJahdYNT6g3uYXw1AsxiGg/devices?page=0&pageSize=200
+[ypf.request] Auth: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI...
+[ypf.request] POST https://location-world.auth0.com/oauth/token
+[ypf.request] GET https://customer-api.location-world.com/v1/undefined/undefined/users/CfDJ8COUpcZAPylPuQoaNpKGwysUoGrWOPtwW5lT0j-KtGzrNgrt8AiwbFxHQzmdGFeT1mUPj9Ec8V6Qp6x2Lij8kMCemnXUnC9MPUpFdtaiOttRoJahdYNT6g3uYXw1AsxiGg/devices?page=0&pageSize=200
+[ypf.request] Auth: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI...
+[ypf.request] POST https://mag.ypf.com/auth/oauth/v2/token
+[ypf.request] POST https://customer-api.location-world.com/v1/fleet/ypfruta/sessions/3party-jwt
+[ypf.request] Auth: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI...
+[ypf.session] Session created successfully
+[ypf.request] POST https://location-world.auth0.com/oauth/token
+[ypf.request] GET https://customer-api.location-world.com/v1/undefined/undefined/users/CfDJ8COUpcZAPylPuQoaNpKGwysUoGrWOPtwW5lT0j-KtGzrNgrt8AiwbFxHQzmdGFeT1mUPj9Ec8V6Qp6x2Lij8kMCemnXUnC9MPUpFdtaiOttRoJahdYNT6g3uYXw1AsxiGg/devices?page=0&pageSize=200
+[ypf.request] Auth: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI...
+Test failed: https://customer-ap
+i.location-world.com/v1/undefine
+d/undefined/users/CfDJ8COUpcZAPy
+lPuQoaNpKGwysUoGrWOPtwW5lT0j-KtG
+zrNgrt8AiwbFxHQzmdGFeT1mUPj9Ec8V
+6Qp6x2Lij8kMCemnXUnC9MPUpFdtaiOt
+tRoJahdYNT6g3uYXw1AsxiGg/devices
+?page=0&pageSize=200 responded 
+with 401: Unauthorized

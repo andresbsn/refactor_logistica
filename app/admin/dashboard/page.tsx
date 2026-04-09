@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -33,6 +33,13 @@ import {
 import { useRoutes } from "@/lib/routes-context"
 import { mockTickets, mockCrews } from "@/lib/mock-data"
 import type { Ticket, AssignedTicket } from "@/types/ticket"
+
+type DashboardTicket = (Ticket | AssignedTicket) & {
+  _routeId?: string
+  _routeName?: string
+  _crewName?: string
+  _crewId?: string
+}
 
 const zones = ["Centro", "Alberdi", "General Paz", "Nueva Cordoba", "Alta Cordoba", "San Vicente", "Guemes", "14 de Abril"]
 
@@ -87,13 +94,20 @@ export default function DashboardPage() {
   const [zoneFilter, setZoneFilter] = useState("all")
   const [priorityFilter, setPriorityFilter] = useState("all")
   const [sortBy, setSortBy] = useState("newest")
-  const [selectedTicket, setSelectedTicket] = useState<(Ticket | AssignedTicket) | null>(null)
+  const [selectedTicket, setSelectedTicket] = useState<DashboardTicket | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [ticketNotes, setTicketNotes] = useState("")
   const [mapToggle, setMapToggle] = useState({ tickets: true, crews: true, routes: true })
 
+  useEffect(() => {
+    if (!drawerOpen) {
+      setSelectedTicket(null)
+      setTicketNotes("")
+    }
+  }, [drawerOpen])
+
   // Merge all tickets: backlog (open) + assigned route tickets
-  const allTickets = useMemo(() => {
+  const allTickets = useMemo<DashboardTicket[]>(() => {
     const routeTickets = assignedRoutes.flatMap((r) =>
       r.tickets.map((t) => ({
         ...t,
@@ -121,7 +135,7 @@ export default function DashboardPage() {
 
   // Filtered tickets
   const filteredTickets = useMemo(() => {
-    let result = allTickets
+    let result = [...allTickets]
 
     // Tab filter
     if (ticketTab === "open") {
@@ -538,6 +552,9 @@ export default function DashboardPage() {
                                 const total = activeRoute.tickets.length
                                 const closed = activeRoute.tickets.filter((t) => t.status === "closed").length
                                 const pending = activeRoute.tickets.filter((t) => t.status === "pending").length
+                                if (total === 0) {
+                                  return <div className="h-full w-full bg-muted" />
+                                }
                                 return (
                                   <div className="flex h-full">
                                     <div className="bg-green-500 h-full" style={{ width: `${(closed / total) * 100}%` }} />
@@ -563,13 +580,13 @@ export default function DashboardPage() {
 
                       {/* Actions */}
                       <div className="flex gap-1.5">
-                        <Button size="sm" variant="outline" className="h-7 text-[11px] flex-1 bg-transparent">
+                        <Button size="sm" variant="outline" className="h-7 text-[11px] flex-1 bg-transparent" disabled title="Disponible desde Rutas Sugeridas">
                           <UserPlus className="h-3 w-3 mr-1" />
                           Asignar
                         </Button>
                         {activeRoute && (
                           <>
-                            <Button size="sm" variant="outline" className="h-7 text-[11px] flex-1 bg-transparent">
+                            <Button size="sm" variant="outline" className="h-7 text-[11px] flex-1 bg-transparent" disabled title="Vista informativa">
                               <Eye className="h-3 w-3 mr-1" />
                               Ver ruta
                             </Button>
@@ -658,22 +675,22 @@ export default function DashboardPage() {
                 {/* Assignment */}
                 <div className="space-y-3">
                   <h4 className="text-sm font-semibold">Asignacion</h4>
-                  {(selectedTicket as typeof filteredTickets[0])._crewName ? (
+                  {selectedTicket._crewName ? (
                     <div className="p-3 rounded-md bg-muted/50 border">
                       <p className="text-sm font-medium flex items-center gap-1.5">
                         <Users className="h-4 w-4 text-blue-600" />
-                        {(selectedTicket as typeof filteredTickets[0])._crewName}
+                        {selectedTicket._crewName}
                       </p>
-                      {(selectedTicket as typeof filteredTickets[0])._routeName && (
+                      {selectedTicket._routeName && (
                         <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
                           <Route className="h-3 w-3" />
-                          {(selectedTicket as typeof filteredTickets[0])._routeName}
+                          {selectedTicket._routeName}
                         </p>
                       )}
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      <Select>
+                      <Select disabled>
                         <SelectTrigger>
                           <SelectValue placeholder="Seleccionar cuadrilla..." />
                         </SelectTrigger>
@@ -683,7 +700,7 @@ export default function DashboardPage() {
                           ))}
                         </SelectContent>
                       </Select>
-                      <Button className="w-full" size="sm">
+                      <Button className="w-full" size="sm" variant="outline" disabled title="La asignación se realiza desde Rutas Sugeridas">
                         <UserPlus className="h-4 w-4 mr-2" />
                         Asignar cuadrilla
                       </Button>

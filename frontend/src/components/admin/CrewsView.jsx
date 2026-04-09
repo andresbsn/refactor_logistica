@@ -3,8 +3,10 @@ import { useRoutes } from "../../lib/routes-context"
 import { mockCrews } from "../../lib/mock-data"
 import TicketDetailDialog from "../crew/ticket-detail-dialog"
 import RoutePathDialog from "./route-path-dialog"
+import AddTicketsToRouteModal from "./add-tickets-to-route-modal"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog"
-import { ticketService } from "../../services/api"
+import { Textarea } from "../ui/textarea"
+import { routeService, ticketService } from "../../services/api"
 import { 
   Users, 
   MapPin, 
@@ -18,7 +20,9 @@ import {
   CheckSquare,
   Eye,
   Info,
-  AlertTriangle
+  AlertTriangle,
+  Trash2,
+  Plus
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../ui/card"
 import { Badge } from "../ui/badge"
@@ -35,7 +39,7 @@ import { Input } from "../ui/input"
 import { cn } from "../../lib/utils"
 
 export function CrewsView() {
-  const { assignedRoutes, closeTicket } = useRoutes()
+  const { assignedRoutes, closeTicket, fetchRoutes } = useRoutes()
   const [selectedCrew, setSelectedCrew] = useState("all")
   const [selectedStatus, setSelectedStatus] = useState("all")
   const [searchQuery, setSearchQuery] = useState("")
@@ -45,6 +49,10 @@ export function CrewsView() {
   const [routePathDialogOpen, setRoutePathDialogOpen] = useState(false)
   const [closingTicket, setClosingTicket] = useState(null)
   const [confirmDialog, setConfirmDialog] = useState({ open: false, ticket: null })
+  const [routeActionDialog, setRouteActionDialog] = useState({ open: false, route: null, action: null })
+  const [routeActionLoading, setRouteActionLoading] = useState(false)
+  const [routeActionObservation, setRouteActionObservation] = useState("")
+  const [addTicketsModalOpen, setAddTicketsModalOpen] = useState(false)
 
   const handleCloseTicket = (ticket) => {
     setConfirmDialog({ open: true, ticket })
@@ -190,6 +198,48 @@ export function CrewsView() {
       const state = getTicketFlowState(ticket)
       return state === "solved" || state === "pending" || state === "closed"
     }).length
+  }
+
+  const getRouteClosedCount = (route) => {
+    if (!route?.tickets?.length) return 0
+    return route.tickets.filter((ticket) => {
+      const state = getTicketFlowState(ticket)
+      return state === "solved" || state === "closed"
+    }).length
+  }
+
+  const openRouteActionDialog = (action) => {
+    if (!selectedRoute) return
+    setRouteActionObservation("")
+    setRouteActionDialog({ open: true, route: selectedRoute, action })
+  }
+
+  const confirmRouteAction = async () => {
+    const actionRoute = routeActionDialog.route
+    if (!actionRoute) return
+
+    if (routeActionDialog.action !== "delete" && !routeActionObservation.trim()) {
+      return
+    }
+
+    setRouteActionLoading(true)
+    try {
+      if (routeActionDialog.action === "delete") {
+        await routeService.deleteRoute(actionRoute.id)
+      } else {
+        await routeService.closeUnexpected(actionRoute.id, routeActionObservation.trim())
+      }
+
+      await fetchRoutes()
+      setSelectedRoute(null)
+      setRoutePathDialogOpen(false)
+    } catch (error) {
+      console.error("Error processing route action:", error)
+    } finally {
+      setRouteActionLoading(false)
+      setRouteActionDialog({ open: false, route: null, action: null })
+      setRouteActionObservation("")
+    }
   }
 
   return (
@@ -349,7 +399,7 @@ export function CrewsView() {
                       </div>
                       <CardTitle className="text-3xl font-outfit font-black text-primary tracking-tight">{selectedRoute.name}</CardTitle>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 flex-wrap justify-end">
                       <div className="text-right flex flex-col items-end">
                         <div className="flex items-center gap-2 justify-end mb-1">
                           <Users className="h-4 w-4 text-primary" />
@@ -358,6 +408,24 @@ export function CrewsView() {
                         <p className="text-xs text-slate-500">Creada el {formatTimestamp(selectedRoute.created_at || selectedRoute.createdAt, true)}</p>
                         <p className="text-xs text-slate-500">Asignada el {formatTimestamp(selectedRoute.assigned_at || selectedRoute.assignedAt, true)}</p>
                       </div>
+                      {selectedRoute.status !== "completed" && getRouteClosedCount(selectedRoute) > 0 && (
+                        <Button
+                          onClick={() => openRouteActionDialog("close")}
+                          className="h-11 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold shadow-lg shadow-amber-500/20"
+                        >
+                          <AlertTriangle className="h-4 w-4 mr-2" />
+                          Cerrar por imprevisto
+                        </Button>
+                      )}
+                      {selectedRoute.status !== "completed" && getRouteClosedCount(selectedRoute) === 0 && (
+                        <Button
+                          onClick={() => openRouteActionDialog("delete")}
+                          className="h-11 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold shadow-lg shadow-rose-500/20"
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Eliminar ruta
+                        </Button>
+                      )}
                       {isRouteReadyForPath(selectedRoute) && (
                         <Button
                           onClick={() => setRoutePathDialogOpen(true)}
@@ -365,6 +433,15 @@ export function CrewsView() {
                         >
                           <RouteIcon className="h-4 w-4 mr-2" />
                           Ver recorrido
+                        </Button>
+                      )}
+                      {selectedRoute.status === "active" && (
+                        <Button
+                          onClick={() => setAddTicketsModalOpen(true)}
+                          className="h-11 rounded-xl bg-custom-blue hover:bg-custom-blue/90 text-white font-bold shadow-lg shadow-primary/20"
+                        >
+                          <Plus className="h-4 w-4 mr-2" />
+                          Agregar Tickets
                         </Button>
                       )}
                     </div>
@@ -563,6 +640,74 @@ export function CrewsView() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        open={routeActionDialog.open}
+        onOpenChange={(open) => {
+          setRouteActionDialog({ ...routeActionDialog, open })
+          if (!open) setRouteActionObservation("")
+        }}
+      >
+        <DialogContent className="max-w-md rounded-3xl border-slate-200 bg-white/95 backdrop-blur-sm p-0 shadow-xl">
+          <DialogHeader className="pb-2 pt-6 px-6">
+            <DialogTitle className="text-lg font-bold text-slate-900">
+              {routeActionDialog.action === "delete" ? "Eliminar ruta" : "Cerrar ruta por imprevisto"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="px-6 pb-6 space-y-3">
+            <p className="text-sm text-slate-600 leading-relaxed">
+              {routeActionDialog.action === "delete"
+                ? "La ruta no tiene tickets resueltos. Se desactivará y quedará inutilizable."
+                : "Los tickets pendientes quedarán marcados como no cerrables y se guardará el recorrido real con el histórico de YPF."}
+            </p>
+            {routeActionDialog.action !== "delete" && (
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-slate-700">Imprevisto</label>
+                <Textarea
+                  value={routeActionObservation}
+                  onChange={(e) => setRouteActionObservation(e.target.value)}
+                  placeholder="Describí el imprevisto..."
+                  className="min-h-28 rounded-2xl"
+                />
+              </div>
+            )}
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
+              Ruta #{routeActionDialog.route?.id}
+            </p>
+          </div>
+          <div className="flex justify-end gap-3 px-6 pb-6">
+            <Button
+              variant="outline"
+              onClick={() => setRouteActionDialog({ open: false, route: null, action: null })}
+              className="h-10 px-6 rounded-xl border-slate-200 text-slate-700 font-bold"
+              disabled={routeActionLoading}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={confirmRouteAction}
+              className={cn(
+                "h-10 px-6 rounded-xl text-white font-bold shadow-lg",
+                routeActionDialog.action === "delete"
+                  ? "bg-rose-600 hover:bg-rose-700"
+                  : "bg-amber-600 hover:bg-amber-700"
+              )}
+              disabled={routeActionLoading || (routeActionDialog.action !== "delete" && !routeActionObservation.trim())}
+            >
+              {routeActionLoading ? "Procesando..." : routeActionDialog.action === "delete" ? "Eliminar" : "Cerrar"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <AddTicketsToRouteModal
+        open={addTicketsModalOpen}
+        onOpenChange={setAddTicketsModalOpen}
+        route={selectedRoute}
+        onTicketsAdded={() => {
+          fetchRoutes()
+        }}
+      />
 
     </div>
   )

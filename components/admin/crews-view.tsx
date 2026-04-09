@@ -31,6 +31,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import type { AssignedRoute, AssignedTicket } from "@/types/ticket"
+import { TicketResolutionDialog } from "@/components/admin/ticket-resolution-dialog"
 
 export function CrewsView() {
   const { assignedRoutes, closeTicket } = useRoutes()
@@ -38,6 +39,8 @@ export function CrewsView() {
   const [selectedStatus, setSelectedStatus] = useState<string>("all")
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedRoute, setSelectedRoute] = useState<AssignedRoute | null>(null)
+  const [selectedTicket, setSelectedTicket] = useState<AssignedTicket | null>(null)
+  const [showTicketDialog, setShowTicketDialog] = useState(false)
 
   const filteredRoutes = useMemo(() => {
     return assignedRoutes.filter((route: AssignedRoute) => {
@@ -84,6 +87,11 @@ export function CrewsView() {
       default:
         return <Badge variant="outline">{status}</Badge>
     }
+  }
+
+  const handleViewTicketDetails = (ticket: AssignedTicket) => {
+    setSelectedTicket(ticket)
+    setShowTicketDialog(true)
   }
 
   return (
@@ -311,7 +319,12 @@ export function CrewsView() {
                                 Cerrar
                               </Button>
                             )}
-                            <Button variant="outline" size="sm" className="rounded-xl border-slate-200 h-9 font-bold text-slate-600">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="rounded-xl border-slate-200 h-9 font-bold text-slate-600"
+                              onClick={() => handleViewTicketDetails(ticket)}
+                            >
                               <Eye className="h-4 w-4 mr-2" />
                               Ver Detalles
                             </Button>
@@ -352,6 +365,12 @@ export function CrewsView() {
           )}
         </div>
       </div>
+
+      <TicketResolutionDialog
+        open={showTicketDialog}
+        onOpenChange={setShowTicketDialog}
+        ticket={selectedTicket}
+      />
     </div>
   )
 }

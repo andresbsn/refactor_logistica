@@ -42,6 +42,7 @@ export const ticketService = {
     getAll: (params) => api.get('/tickets', { params }).then(res => res.data),
     getById: (id) => api.get(`/tickets/${id}`).then(res => res.data),
     getImages: (id) => api.get(`/tickets/${id}/images`).then(res => res.data),
+    registerClosingActivities: (ticketId, data) => api.post(`/tickets/${ticketId}/activities`, data).then(res => res.data),
     changeStatus: (id, estado, notas = null) => {
         const data = { estado };
         if (notas) data.notas = notas;
@@ -61,13 +62,19 @@ export const routeService = {
     generateRoutes: (params) => api.post('/routes/admin/generate', params),
     getAdminRoutes: (params) => api.get('/routes/admin', { params }),
     confirm: (id, data) => api.patch(`/routes/admin/${id}/confirm`, data),
+    closeUnexpected: (id, observations) => api.post(`/routes/${id}/close-unexpected`, { observations }).then(res => res.data),
+    deleteRoute: (id) => api.delete(`/routes/admin/${id}`).then(res => res.data),
     logEvent: (routeId, ticketId, eventNumber) => {
         const resolvedTicketId = ticketId == null ? 'null' : ticketId;
         return api.post(`/routes/${routeId}/tickets/${resolvedTicketId}/event`, { eventNumber }).then(res => res.data);
     },
     getTicketStatus: (routeId, ticketId) => api.get(`/routes/${routeId}/tickets/${ticketId}/status`).then(res => res.data),
     getRouteLocations: (routeId, eventId = 5) => api.get(`/routes/${routeId}/locations`, { params: { eventId } }).then(res => res.data),
-    updateTicketStatus: (routeId, ticketId, data) => api.patch(`/routes/${routeId}/tickets/${ticketId}/status`, data),
+    sendCrewLocation: (routeId, data) => api.post(`/routes/${routeId}/crew-location`, data).then(res => res.data),
+    getCrewLocation: (routeId) => api.get(`/routes/${routeId}/crew-location`).then(res => res.data),
+updateTicketStatus: (routeId, ticketId, data) => api.patch(`/routes/${routeId}/tickets/${ticketId}/status`, data),
+    getBacklogTickets: (routeId, params) => api.get(`/routes/${routeId}/available-tickets`, { params }).then(res => res.data),
+    addTicketsToRoute: (routeId, ticketIds) => api.post(`/routes/${routeId}/add-tickets`, { ticketIds }).then(res => res.data),
 };
 
 export const authService = {

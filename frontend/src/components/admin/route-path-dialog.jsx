@@ -67,6 +67,21 @@ const parseCoordinates = (coordinates) => {
   return null
 }
 
+const normalizeTicketCoordinates = (ticket) => {
+  const coordinates = parseCoordinates({
+    latitude: ticket.latitude ?? ticket.lat ?? ticket.y,
+    longitude: ticket.longitude ?? ticket.lng ?? ticket.lon ?? ticket.x,
+  })
+
+  return coordinates
+    ? {
+        ...ticket,
+        coordinates,
+        source: "ticket",
+      }
+    : null
+}
+
 export default function RoutePathDialog({ open, onOpenChange, route }) {
   const mapRef = useRef(null)
   const mapInstanceRef = useRef(null)
@@ -106,18 +121,34 @@ export default function RoutePathDialog({ open, onOpenChange, route }) {
       setPoints([])
 
       try {
-        const rows = await routeService.getRouteLocations(route.id, 5)
-        if (cancelled) return
+        const eventIds = [5, 6, 1]
+        let orderedPoints = []
 
-        const orderedPoints = (Array.isArray(rows) ? rows : [])
-          .map((row) => {
-            const coordinates = parseCoordinates(row.coordinates) || parseCoordinates({
-              latitude: row.latitude,
-              longitude: row.longitude,
+        for (const eventId of eventIds) {
+          const rows = await routeService.getRouteLocations(route.id, eventId)
+          if (cancelled) return
+
+          const parsedRows = (Array.isArray(rows) ? rows : [])
+            .map((row) => {
+              const coordinates = parseCoordinates(row.coordinates) || parseCoordinates({
+                latitude: row.latitude,
+                longitude: row.longitude,
+              })
+              return coordinates ? { ...row, coordinates, source: "history" } : null
             })
-            return coordinates ? { ...row, coordinates } : null
-          })
-          .filter(Boolean)
+            .filter(Boolean)
+
+          if (parsedRows.length > 0) {
+            orderedPoints = parsedRows
+            break
+          }
+        }
+
+        if (orderedPoints.length === 0) {
+          orderedPoints = (Array.isArray(route.tickets) ? route.tickets : [])
+            .map(normalizeTicketCoordinates)
+            .filter(Boolean)
+        }
 
         setPoints(orderedPoints)
 
@@ -161,23 +192,23 @@ export default function RoutePathDialog({ open, onOpenChange, route }) {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
       }).addTo(map)
 
-      points.forEach((point, index) => {
-        const icon = L.divIcon({
-          className: "custom-div-icon",
-          html: `<div style="width:26px;height:26px;border-radius:9999px;background:#0f766e;color:white;border:2px solid white;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;box-shadow:0 2px 6px rgba(15,118,110,.35)">${index + 1}</div>`,
-          iconSize: [26, 26],
-          iconAnchor: [13, 13],
-        })
+        points.forEach((point, index) => {
+          const icon = L.divIcon({
+            className: "custom-div-icon",
+            html: `<div style="width:26px;height:26px;border-radius:9999px;background:#0f766e;color:white;border:2px solid white;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;box-shadow:0 2px 6px rgba(15,118,110,.35)">${index + 1}</div>`,
+            iconSize: [26, 26],
+            iconAnchor: [13, 13],
+          })
 
-        L.marker(point.coordinates, { icon })
-          .addTo(map)
-          .bindPopup(`
-            <div style="font-family: inherit; font-size: 13px;">
-              <div style="font-weight: 700; margin-bottom: 2px;">Punto ${index + 1}</div>
-              <div style="color: #666; font-size: 11px;">${new Date(point.timestamp).toLocaleString("es-AR")}</div>
-            </div>
-          `)
-      })
+          L.marker(point.coordinates, { icon })
+            .addTo(map)
+            .bindPopup(`
+              <div style="font-family: inherit; font-size: 13px;">
+              <div style="font-weight: 700; margin-bottom: 2px;">${point.source === "ticket" ? (point.ticketNumber || `Ticket ${index + 1}`) : `Punto ${index + 1}`}</div>
+              <div style="color: #666; font-size: 11px;">${point.timestamp ? new Date(point.timestamp).toLocaleString("es-AR") : point.source === "ticket" ? "Parada de la ruta" : "Sin hora disponible"}</div>
+              </div>
+            `)
+        })
 
       if (latLngs.length > 1) {
         L.polyline(latLngs, {
@@ -223,10 +254,10 @@ export default function RoutePathDialog({ open, onOpenChange, route }) {
                   <Activity className="h-3.5 w-3.5 mr-1.5" />
                   {points.length} puntos
                 </Badge>
-                <span className="flex items-center gap-1.5">
+                {/* <span className="flex items-center gap-1.5">
                   <MapPin className="h-3.5 w-3.5 text-teal-600" />
                   Eventos 5
-                </span>
+                </span> */}
               </div>
             </div>
           </div>

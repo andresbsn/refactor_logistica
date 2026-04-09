@@ -1,8 +1,6 @@
 "use client"
 
-import React from "react"
-
-import { useState, useMemo, useEffect } from "react"
+import { useState, useMemo, useEffect, type ReactNode } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
@@ -29,7 +27,7 @@ import { useRoutes } from "@/lib/routes-context"
 export default function AdminLayout({
   children,
 }: {
-  children: React.ReactNode
+  children: ReactNode
 }) {
   const pathname = usePathname()
   const router = useRouter()
@@ -154,7 +152,7 @@ export default function AdminLayout({
             {navItems.map((item) => {
               const isActive = pathname === item.href
               return (
-                <Link key={item.href} href={item.href}>
+                <Link key={item.href} href={item.href} onClick={() => setSidebarOpen(false)}>
                   <div
                     className={cn(
                       "flex items-center gap-3 px-4 py-3 rounded-lg transition-colors",

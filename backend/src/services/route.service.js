@@ -3,6 +3,7 @@ const ypfService = require('./ypf.service');
 
 const YPF_HISTORY_DOMAIN = process.env.YPF_HISTORY_DOMAIN || 'fleet';
 const YPF_HISTORY_SUBDOMAIN = process.env.YPF_HISTORY_SUBDOMAIN || 'ypfruta';
+const MAX_ROUTE_HISTORY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 const extractVehiclePlate = (vehicle) => {
     if (!vehicle) return null;
@@ -26,6 +27,17 @@ const extractVehiclePlate = (vehicle) => {
     }
 
     return null;
+};
+
+const getRouteHistoryWindowMs = (startedAt, endedAt) => {
+    const startDate = new Date(startedAt);
+    const endDate = new Date(endedAt);
+
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+        return null;
+    }
+
+    return endDate.getTime() - startDate.getTime();
 };
 
 const extractHistoryItems = (payload) => {
@@ -196,8 +208,8 @@ const buildRouteLocationRows = (routeId, historyPayload) => {
     return rows;
 };
 
-const fetchRouteHistory = async (routeId) => {
-    const route = await routeRepository.getRouteHistoryContext(routeId);
+const fetchRouteHistory = async (routeId, routeContext = null) => {
+    const route = routeContext || await routeRepository.getRouteHistoryContext(routeId);
     if (!route || !route.started_at || !route.ended_at || !route.vehicle_id) {
         console.warn('[route.history] Missing route context for history fetch', {
             routeId,
@@ -227,6 +239,26 @@ const fetchRouteHistory = async (routeId) => {
         console.warn('[route.history] Missing Location World userId for history fetch', {
             routeId,
             vehiclePlate,
+        });
+        return null;
+    }
+
+    const historyWindowMs = getRouteHistoryWindowMs(route.started_at, route.ended_at);
+    if (historyWindowMs === null) {
+        console.warn('[route.history] Invalid route timestamps for YPF history fetch', {
+            routeId,
+            startedAt: route.started_at || null,
+            endedAt: route.ended_at || null,
+        });
+        return null;
+    }
+
+    if (historyWindowMs < 0 || historyWindowMs > MAX_ROUTE_HISTORY_WINDOW_MS) {
+        console.warn('[route.history] Skipping YPF history fetch because the route window exceeds 24 hours', {
+            routeId,
+            startedAt: route.started_at || null,
+            endedAt: route.ended_at || null,
+            windowHours: historyWindowMs / (60 * 60 * 1000),
         });
         return null;
     }
@@ -265,12 +297,58 @@ const storeRouteHistory = async (routeId, historyPayload) => {
     return routeRepository.insertRouteLocations(rows);
 };
 
+const closeRouteUnexpectedly = async (routeId, userId, observations) => {
+    const route = await routeRepository.getRouteHistoryContext(routeId);
+
+    if (!route || route.deleted_at) {
+        return null;
+    }
+
+    const closedAt = new Date().toISOString();
+    const history = await fetchRouteHistory(routeId, {
+        ...route,
+        ended_at: closedAt,
+    });
+
+    if (!history) {
+        throw new Error('No se pudo consultar el histórico de YPF para cerrar la ruta');
+    }
+
+    const historyRows = buildRouteLocationRows(routeId, history);
+    return await routeRepository.closeRouteUnexpected({
+        routeId,
+        closedAt,
+        updatedBy: userId,
+        historyRows,
+        observations,
+    });
+};
+
+const deleteRouteIfPossible = async (routeId) => {
+    const route = await routeRepository.getRouteHistoryContext(routeId);
+
+    if (!route || route.deleted_at) {
+        return null;
+    }
+
+    const summary = await routeRepository.getRouteClosureSummary(routeId);
+    if (Number(summary.resolved_tickets) > 0) {
+        throw new Error('No se puede eliminar una ruta con tickets resueltos');
+    }
+
+    return await routeRepository.deleteRouteLogically({ routeId });
+};
+
 const getAllRoutes = async (filters) => {
     return await routeRepository.findAll(filters);
 };
 
 const getRouteById = async (id) => {
     return await routeRepository.findById(id);
+};
+
+const getRouteClosureSummary = async (routeId) => {
+    return await routeRepository.getRouteClosureSummary(routeId);
 };
 
 const createRoute = async (data) => {
@@ -303,6 +381,20 @@ const updateRoute = async (id, data) => {
     return updatedRoute;
 };
 
+const closeRouteUnexpected = async (routeId, userId) => {
+    const result = await closeRouteUnexpectedly(routeId, userId);
+
+    if (!result) {
+        return null;
+    }
+
+    return result;
+};
+
+const deleteRoute = async (routeId) => {
+    return await deleteRouteIfPossible(routeId);
+};
+
 // Distance in km using Haversine
 function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
     var R = 6371; // Radius of the earth in km
@@ -332,6 +424,11 @@ const PRIORITY_MAP = {
     default: 4
 };
 
+const toFiniteNumber = (value, fallback) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+};
+
 const getPriorityValue = (tipo, subtipo, manualPrio) => {
     // 1. Regla específica por subtipo
     const typeMap = PRIORITY_MAP[tipo] || { default: PRIORITY_MAP.default };
@@ -349,6 +446,34 @@ const getPriorityValue = (tipo, subtipo, manualPrio) => {
     return score;
 };
 
+const getClusterCenter = (tickets) => {
+    return tickets.reduce((acc, ticket) => ({
+        latitude: acc.latitude + ticket.latitude,
+        longitude: acc.longitude + ticket.longitude,
+    }), { latitude: 0, longitude: 0 });
+};
+
+const isTicketCompactEnough = (candidate, cluster, radiusKm) => {
+    if (cluster.length === 0) return true;
+
+    const center = getClusterCenter(cluster);
+    const clusterCenterLat = center.latitude / cluster.length;
+    const clusterCenterLng = center.longitude / cluster.length;
+
+    const distanceToCenter = getDistanceFromLatLonInKm(
+        clusterCenterLat,
+        clusterCenterLng,
+        candidate.latitude,
+        candidate.longitude,
+    );
+
+    if (distanceToCenter > radiusKm) return false;
+
+    return cluster.every((ticket) => (
+        getDistanceFromLatLonInKm(ticket.latitude, ticket.longitude, candidate.latitude, candidate.longitude) <= radiusKm
+    ));
+};
+
 const generateAdminRoutes = async ({
     typeId,
     maxPerRoute = 10,
@@ -358,15 +483,22 @@ const generateAdminRoutes = async ({
     priorityWeight = 50,
     minTickets = 1
 }) => {
+    const normalizedTypeId = typeId !== undefined && typeId !== null ? toFiniteNumber(typeId, undefined) : undefined;
+    const normalizedMaxPerRoute = Math.max(1, Math.trunc(toFiniteNumber(maxPerRoute, 10)));
+    const normalizedRadius = Math.max(0.1, toFiniteNumber(radius, 2.0));
+    const normalizedProximityWeight = Math.min(100, Math.max(0, toFiniteNumber(proximityWeight, 50)));
+    const normalizedPriorityWeight = Math.min(100, Math.max(0, toFiniteNumber(priorityWeight, 50)));
+    const normalizedMinTickets = Math.max(1, Math.trunc(toFiniteNumber(minTickets, 1)));
+
     // 1. Limpiar rutas planeadas anteriores del usuario
     await routeRepository.deletePlannedRoutes(userId);
 
-    const unassignedTickets = await routeRepository.getUnassignedOpenTickets(typeId, 'open', userId);
+    const unassignedTickets = await routeRepository.getUnassignedOpenTickets(normalizedTypeId, 'open', userId);
     if (!unassignedTickets || unassignedTickets.length === 0) return { routesCreated: 0 };
 
     // Filtramos tickets con coordenadas y les asignamos un valor numérico de prioridad (1-10)
     const pool = unassignedTickets
-        .filter(t => t.latitude && t.longitude)
+        .filter(t => Number.isFinite(Number(t.latitude)) && Number.isFinite(Number(t.longitude)))
         .map(t => ({
             ...t,
             // Aseguramos que latitude/longitude sean números
@@ -378,7 +510,7 @@ const generateAdminRoutes = async ({
     if (pool.length === 0) return { routesCreated: 0 };
 
     // Semilla de orden: depende de la preferencia del usuario
-    if (proximityWeight >= priorityWeight) {
+    if (normalizedProximityWeight >= normalizedPriorityWeight) {
         // Enfoque geográfico: empezamos por ubicación (Norte a Sur) para agrupar por zonas
         pool.sort((a, b) => b.latitude - a.latitude || a.longitude - b.longitude);
     } else {
@@ -390,13 +522,10 @@ const generateAdminRoutes = async ({
     const usedTicketIds = new Set();
 
     // 3. Algoritmo de ruteo eficiente (Híbrido Dinámico)
-    // El radio se expande si la prioridad pesa más, permitiendo agrupar tickets críticos lejos entre sí.
-    const effectiveRadius = priorityWeight > 50 
-        ? radius * (1 + (priorityWeight - 50) / 10)  // Aumenta progresivamente hasta 6x el radio
-        : radius;
-
-    // Si la prioridad es máxima (>95%), eliminamos el límite de radio para agrupar los top priority
-    const isGlobalSearch = priorityWeight > 95;
+    // En modo geográfico usamos un radio más estricto para evitar rutas “estiradas”.
+    const effectiveRadius = normalizedProximityWeight >= normalizedPriorityWeight
+        ? normalizedRadius * 0.7
+        : normalizedRadius * (1 + Math.min(0.35, (normalizedPriorityWeight - normalizedProximityWeight) / 300));
 
     for (let i = 0; i < pool.length; i++) {
         const seed = pool[i];
@@ -407,8 +536,7 @@ const generateAdminRoutes = async ({
 
         // Buscar candidatos en el resto de los tickets no usados
         const candidates = [];
-        for (let j = 0; j < pool.length; j++) { // Escaneamos todo el pool para no perder candidatos si el radio es grande
-            if (i === j) continue;
+        for (let j = i + 1; j < pool.length; j++) {
             const ticket = pool[j];
             if (usedTicketIds.has(ticket.id)) continue;
 
@@ -419,37 +547,27 @@ const generateAdminRoutes = async ({
                 ticket.longitude
             );
 
-            // Filtrar por radio dinámico (o ignorar si es búsqueda global)
-            if (isGlobalSearch || dist <= effectiveRadius) {
-                // Normalización agresiva: 
-                // En modo proximidad (Weight 100), la distancia manda totalmente.
-                // En modo prioridad (Weight 100), la penalización de prioridad manda totalmente.
-                const prioPenalization = (10 - ticket.priorityValue);
-                
-                // Aplicamos un factor de potencia para que los pesos extremos se sientan más
-                const pWeight = Math.pow(proximityWeight / 100, 2);
-                const rWeight = Math.pow(priorityWeight / 100, 2);
-                
-                // El score ahora balancea km reales vs "km de penalización de prioridad"
-                // Un ticket de prioridad 10 (penalización 0) siempre gana en modo prioridad.
-                const score = (pWeight * dist) + (rWeight * prioPenalization * 2); // 1 nivel de prioridad = 2km de desvío aprox en balance 50/50
-                
+            if (dist <= effectiveRadius && isTicketCompactEnough(ticket, currentRouteCluster, effectiveRadius)) {
+                const distanceScore = 1 - (dist / effectiveRadius);
+                const priorityScore = ticket.priorityValue / 10;
+                const score = (normalizedProximityWeight * distanceScore) + (normalizedPriorityWeight * priorityScore);
+
                 candidates.push({ ticket, score });
             }
         }
 
-        // Ordenar candidatos por score ascendente (menor es mejor)
-        candidates.sort((a, b) => a.score - b.score);
+        // Ordenar candidatos por score descendente (mayor es mejor), igual que planner.service
+        candidates.sort((a, b) => b.score - a.score);
 
         // Tomar los mejores candidatos para completar la ruta
-        const ticketsToAdd = candidates.slice(0, maxPerRoute - 1);
+        const ticketsToAdd = candidates.slice(0, normalizedMaxPerRoute - 1);
         for (const c of ticketsToAdd) {
             currentRouteCluster.push(c.ticket);
             usedTicketIds.add(c.ticket.id);
         }
 
         // Guardar grupo si cumple el mínimo
-        if (currentRouteCluster.length >= minTickets) {
+        if (currentRouteCluster.length >= normalizedMinTickets) {
             routesToBatch.push(currentRouteCluster.map(t => t.id));
         }
     }
@@ -476,6 +594,15 @@ const logEvent = async (routeId, ticketId, eventNumber) => {
     return await routeRepository.logEvent(routeId, ticketId, eventNumber);
 };
 
+const logCrewLocation = async (routeId, location) => {
+    return await routeRepository.logCrewLocation({
+        routeId,
+        latitude: location.latitude,
+        longitude: location.longitude,
+        timestamp: location.timestamp,
+    });
+};
+
 const updateTicketStatus = async (routeId, ticketId, statusData) => {
     return await routeRepository.updateTicketStatus(routeId, ticketId, statusData);
 };
@@ -500,24 +627,43 @@ const getRouteLocations = async (routeId, eventId = 5) => {
     return await routeRepository.getRouteLocations(routeId, eventId);
 };
 
+const getLatestCrewLocation = async (routeId) => {
+    return await routeRepository.getLatestCrewLocation(routeId);
+};
+
 const getRoutesForLogin = async (userId) => {
     return await routeRepository.findForLogin(userId);
+};
+
+const addTicketsToRoute = async (routeId, ticketIds) => {
+    return await routeRepository.addTicketsToRoute(routeId, ticketIds);
+};
+
+const getBacklogTickets = async (userId, routeId, filters) => {
+    return await routeRepository.getBacklogTickets(userId, routeId, filters);
 };
 
 module.exports = {
     getAllRoutes,
     getRouteById,
+    getRouteClosureSummary,
     createRoute,
     updateRoute,
+    closeRouteUnexpected,
+    deleteRoute,
     generateAdminRoutes,
     getAdminRoutes,
     confirmRoute,
     logEvent,
+    logCrewLocation,
     updateTicketStatus,
     getTicketStatus,
     getVehicles,
     startRoute,
     getRouteHistory,
     getRouteLocations,
-    getRoutesForLogin
+    getLatestCrewLocation,
+    getRoutesForLogin,
+    addTicketsToRoute,
+    getBacklogTickets
 };

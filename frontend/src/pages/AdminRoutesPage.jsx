@@ -28,6 +28,8 @@ const DEFAULT_CONFIG = {
   groupProximityByCategory: true,
 }
 
+const formatConfigValue = (value) => String(value)
+
 export default function AdminRoutesPage() {
   const [routes, setRoutes] = useState([])
   const [loading, setLoading] = useState(true)
@@ -40,6 +42,7 @@ export default function AdminRoutesPage() {
   const [showConfig, setShowConfig] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [errorDialog, setErrorDialog] = useState({ open: false, message: "" })
+  const [pendingTicketsCount, setPendingTicketsCount] = useState(0)
   
   const { toast } = useToast()
   const { assignRoute, assignedRoutes } = useRoutes()
@@ -68,13 +71,21 @@ export default function AdminRoutesPage() {
 
   const fetchAvailableTickets = async () => {
     try {
-      // traer los tickets abiertos de alumbrado con coordenadas
+      // contar todos los tickets abiertos del grupo del usuario
+      const allOpenTickets = await ticketService.getAll({
+        status: "open", 
+        limit: 1000 
+      })
+
+      // traer solo los tickets abiertos con coordenadas, que son los que puede usar el algoritmo
       const data = await ticketService.getAll({ 
         status: "open", 
         hasCoordinates: "true",
         limit: 1000 
       })
-      
+
+      setPendingTicketsCount(allOpenTickets.length)
+       
       // Normalizar tickets para que coincidan con lo que esperan SuggestedRoutes y otros componentes
       const normalized = data.map(t => ({
         ...t,
@@ -324,7 +335,8 @@ export default function AdminRoutesPage() {
           <div className="flex items-center gap-3">
             <div className="hidden sm:flex flex-col items-end mr-2">
               <span className="text-[10px] font-bold text-white uppercase tracking-widest">Tickets Pendientes</span>
-              <span className="text-2xl font-black text-white">{availableTickets.length}</span>
+              <span className="text-2xl font-black text-white">{pendingTicketsCount}</span>
+              <span className="text-[10px] text-white/70">{availableTickets.length} con coordenadas</span>
             </div>
             <Button 
               onClick={generateAIRoutes} 
@@ -418,7 +430,7 @@ export default function AdminRoutesPage() {
 
           <Collapsible open={showConfig} onOpenChange={setShowConfig}>
             <CollapsibleTrigger asChild>
-              <Button variant="ghost" className="w-full h-10 rounded-xl hover:bg-primary/5 text-xs font-bold uppercase tracking-widest text-primary/70">
+              <Button className="w-full h-10 rounded-xl hover:bg-primary/5 text-xs font-bold uppercase tracking-widest text-black/70">
                 {showConfig ? "Contraer Ajustes de Precisión" : "Expandir Ajustes de Precisión"}
               </Button>
             </CollapsibleTrigger>
@@ -432,7 +444,9 @@ export default function AdminRoutesPage() {
                   <div key={item.key} className="p-5 bg-white/50 rounded-2xl border border-white/80 shadow-sm space-y-4">
                     <div className="flex items-center justify-between">
                       <Label className="text-[10px] uppercase tracking-[0.15em] font-black text-slate-500">{item.label}</Label>
-                      <Badge variant="secondary" className="bg-primary/10 text-primary border-0 font-bold">{item.value} {item.unit}</Badge>
+                      <Badge variant="secondary" className="bg-primary/10 text-primary border-0 font-bold">
+                        {formatConfigValue(item.value)} {item.unit}
+                      </Badge>
                     </div>
                     <Slider
                       value={[item.value]}
@@ -441,6 +455,11 @@ export default function AdminRoutesPage() {
                       min={item.min}
                       step={item.step || 1}
                     />
+                    <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                      <span>Mín: {formatConfigValue(item.min)}</span>
+                      <span>Máx: {formatConfigValue(item.max)}</span>
+                      <span>Seleccionado: {formatConfigValue(item.value)}</span>
+                    </div>
                   </div>
                 ))}
               </div>

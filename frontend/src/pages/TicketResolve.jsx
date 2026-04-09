@@ -27,7 +27,7 @@ import {
   AlertCircle
 } from "lucide-react"
 import { Badge } from "../components/ui/badge"
-import { catalogService, uploadService, routeService } from "../services/api"
+import { catalogService, uploadService, routeService, ticketService } from "../services/api"
 import { externalService } from "../services/external"
 import { useAuth } from "../lib/auth-context"
 import { cn } from "../lib/utils"
@@ -116,6 +116,27 @@ export default function TicketResolve() {
       setCurrentTaskId("")
       setTaskQuantity(1)
     }
+  }
+
+  const getSelectedTaskPayload = () => {
+    return selectedTasks
+      .map((task) => {
+        const taskItem = availableTasks.find((taskItem) => {
+          const value = typeof taskItem === 'string' ? taskItem : (taskItem.id || taskItem.name || taskItem.texto)
+          const label = typeof taskItem === 'string' ? taskItem : (taskItem.name || taskItem.texto)
+          return value === task.task || label === task.task
+        })
+
+        if (typeof taskItem === 'string') {
+          return { taskId: taskItem, taskName: taskItem }
+        }
+
+        return {
+          taskId: taskItem?.id || taskItem?.name || taskItem?.texto || null,
+          taskName: taskItem?.name || taskItem?.texto || task.task,
+        }
+      })
+      .filter((task) => task.taskId || task.taskName)
   }
 
 
@@ -218,6 +239,24 @@ export default function TicketResolve() {
   const handleSubmit = async () => {
     if (selectedTasks.length === 0 || !beforeImage || !afterImage) return
     const routeId = ticket.routeId || ticket.route_id
+
+    const tasksPayload = getSelectedTaskPayload()
+    if (tasksPayload.length > 0) {
+      try {
+        await ticketService.registerClosingActivities(ticket.id, {
+          taskIds: tasksPayload.map((task) => task.taskId),
+          taskNames: tasksPayload.map((task) => task.taskName),
+        })
+      } catch (error) {
+        console.error("Error registering ticket activities:", error)
+        toast({
+          title: "Error al registrar actividad",
+          description: "No se pudo guardar la actividad de cierre.",
+          variant: "destructive",
+        })
+        return
+      }
+    }
 
     // Marcar como cerrado en log_route_ticket
     if (routeId) {

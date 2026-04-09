@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
-import type { SuggestedRoute, Ticket } from "@/types/ticket"
+import { useState, useEffect, useMemo, useCallback } from "react"
+import type { SuggestedRoute } from "@/types/ticket"
 import { type RouteConfig, generateHybridRoutes } from "@/lib/route-algorithms"
 import { getSystemConfig } from "./configuracion/page"
 import { mockTickets, mockCrews, mockMaterials } from "@/lib/mock-data"
@@ -83,12 +83,7 @@ export default function AdminRoutesPage() {
     setPriorityWeight(100 - newProximity)
   }
 
-  // Generar rutas cuando cambian los parámetros
-  useEffect(() => {
-    generateRoutes()
-  }, [config, availableTickets, proximityWeight, priorityWeight])
-
-  const generateRoutes = () => {
+  const generateRoutes = useCallback(({ silent = false }: { silent?: boolean } = {}) => {
     const hybridConfig = {
       ...config,
       proximityWeight,
@@ -98,13 +93,18 @@ export default function AdminRoutesPage() {
     const generatedRoutes = generateHybridRoutes(availableTickets, hybridConfig)
     setRoutes(generatedRoutes)
 
-    if (generatedRoutes.length > 0) {
+    if (!silent && generatedRoutes.length > 0) {
       toast({
         title: "Rutas generadas",
         description: `${generatedRoutes.length} rutas con balance: ${proximityWeight}% cercanía, ${priorityWeight}% prioridad`,
       })
     }
-  }
+  }, [availableTickets, config, proximityWeight, priorityWeight, toast])
+
+  // Generar rutas cuando cambian los parámetros
+  useEffect(() => {
+    generateRoutes({ silent: true })
+  }, [generateRoutes])
 
   const handleSelectRoute = (route: SuggestedRoute) => {
     setSelectedRoute(route)
@@ -179,22 +179,25 @@ export default function AdminRoutesPage() {
         <Card className="glass border-white/40 overflow-hidden relative">
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-green-500 to-red-500 opacity-50" />
           <CardHeader className="pb-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="p-3 bg-primary/10 rounded-2xl shadow-sm">
-                  <Sparkles className="h-6 w-6 text-primary" />
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 bg-primary/10 rounded-2xl shadow-sm">
+                    <Sparkles className="h-6 w-6 text-primary" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-xl">Balance de Optimización</CardTitle>
+                    <CardDescription className="text-sm">
+                      Desliza para equilibrar la eficiencia geográfica frente a la prioridad de atención.
+                    </CardDescription>
+                  </div>
                 </div>
-                <div>
-                  <CardTitle className="text-xl">Balance de Optimización</CardTitle>
-                  <CardDescription className="text-sm">
-                    Desliza para equilibrar la eficiencia geográfica frente a la prioridad de atención.
-                  </CardDescription>
-                </div>
-              </div>
-              <Badge variant="outline" className={`px-3 py-1 rounded-full border-none font-semibold ${balanceMode.color.replace('bg-', 'bg-opacity-20 text-').replace('500', '700')} ${balanceMode.color.replace('opacity-20', 'opacity-10')}`}>
-                <div className={`w-2 h-2 rounded-full mr-2 ${balanceMode.color} animate-pulse`} />
-                {balanceMode.label}
-              </Badge>
+                <Badge
+                  variant="outline"
+                  className={`px-3 py-1 rounded-full border-none font-semibold ${balanceMode.color.replace('bg-', 'bg-opacity-20 text-').replace('500', '700')} ${balanceMode.color.replace('opacity-20', 'opacity-10')}`}
+                >
+                  <div className={`w-2 h-2 rounded-full mr-2 ${balanceMode.color} animate-pulse`} />
+                  {balanceMode.label}
+                </Badge>
             </div>
           </CardHeader>
           <CardContent className="space-y-8 pt-4">
@@ -206,7 +209,7 @@ export default function AdminRoutesPage() {
                     <MapPin className="h-4 w-4 text-blue-500" />
                   </div>
                   <div className="flex flex-col">
-                    <span className="font-bold text-foreground">Cercanìa</span>
+                    <span className="font-bold text-foreground">Cercanía</span>
                     <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Logística</span>
                   </div>
                 </div>
@@ -308,13 +311,17 @@ export default function AdminRoutesPage() {
 
             {/* Botón regenerar */}
             <div className="flex justify-end pt-2">
-              <Button onClick={generateRoutes} className="rounded-xl shadow-premium px-8 h-11 transition-all active:scale-[0.98]">
-                <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-                Actualizar Recomendaciones
+              <Button
+                onClick={() => generateRoutes()}
+                className="rounded-xl shadow-premium px-8 h-11 transition-all active:scale-[0.98]"
+                disabled={isGenerating}
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${isGenerating ? 'animate-spin' : ''}`} />
+                {isGenerating ? "Generando..." : "Actualizar Recomendaciones"}
               </Button>
             </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
         {/* Resumen visual */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -369,14 +376,25 @@ export default function AdminRoutesPage() {
           <h2 className="text-lg font-semibold mb-4">
             Rutas Sugeridas ({routes.length})
           </h2>
-          <SuggestedRoutes
-            routes={routes}
-            availableTickets={availableTickets}
-            materials={mockMaterials}
-            onSelectRoute={handleSelectRoute}
-            onConfirmRoute={handleConfirmRoute}
-            onUpdateRoute={handleUpdateRoute}
-          />
+          {routes.length > 0 ? (
+            <SuggestedRoutes
+              routes={routes}
+              availableTickets={availableTickets}
+              materials={mockMaterials}
+              onSelectRoute={handleSelectRoute}
+              onConfirmRoute={handleConfirmRoute}
+              onUpdateRoute={handleUpdateRoute}
+            />
+          ) : (
+            <Card className="border-dashed bg-muted/20">
+              <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                <p className="text-base font-medium">No hay rutas sugeridas todavía.</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Ajusta los parámetros y vuelve a generar recomendaciones.
+                </p>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
 

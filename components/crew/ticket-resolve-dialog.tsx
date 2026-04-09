@@ -38,6 +38,7 @@ import {
 import type { Ticket, Material, MaterialUsed } from "@/types/ticket"
 import { getSubtypeConfig, getMaterialsForTasks } from "@/lib/subtype-config"
 import { mockMaterials } from "@/lib/mock-data"
+import { ticketService } from "@/services/api"
 
 interface TicketResolveDialogProps {
   ticket: Ticket | null
@@ -148,6 +149,27 @@ export function TicketResolveDialog({
     )
   }
 
+  const getSelectedTaskPayload = () => {
+    return selectedTasks
+      .map((taskName) => {
+        const taskItem = availableTasks.find((task) => {
+          const value = typeof task === 'string' ? task : (task.id || task.name || task.texto)
+          const label = typeof task === 'string' ? task : (task.name || task.texto)
+          return value === taskName || label === taskName
+        })
+
+        if (typeof taskItem === 'string') {
+          return { taskId: taskItem, taskName: taskItem }
+        }
+
+        return {
+          taskId: taskItem?.id || taskItem?.name || taskItem?.texto || null,
+          taskName: taskItem?.name || taskItem?.texto || taskName,
+        }
+      })
+      .filter((task) => task.taskId || task.taskName)
+  }
+
   const handleAddMaterial = () => {
     if (!currentMaterialId) return
     const material = allMaterials.find((m) => m.id === currentMaterialId)
@@ -177,8 +199,20 @@ export function TicketResolveDialog({
 
   const canSubmit = beforeImage && afterImage && selectedTasks.length > 0
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!canSubmit || !ticket) return
+
+    const tasksPayload = getSelectedTaskPayload()
+    if (tasksPayload.length > 0) {
+      try {
+        await ticketService.registerClosingActivities(ticket.id, {
+          taskIds: tasksPayload.map((task) => task.taskId),
+          taskNames: tasksPayload.map((task) => task.taskName),
+        })
+      } catch (error) {
+        console.error("Error registering ticket activities:", error)
+      }
+    }
 
     const resolution: ResolutionData = {
       ticketId: ticket.id,

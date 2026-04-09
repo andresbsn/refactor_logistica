@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useMemo, Suspense } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -36,7 +36,6 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { mockTickets } from "@/lib/mock-data"
-import { useSearchParams } from "next/navigation"
 import { useRoutes } from "@/lib/routes-context"
 import Loading from "./loading"
 
@@ -53,7 +52,6 @@ const statusConfig = {
 }
 
 export default function BacklogPage() {
-  const searchParams = useSearchParams()
   const { assignedRoutes } = useRoutes()
   const [searchTerm, setSearchTerm] = useState("")
   const [categoryFilter, setCategoryFilter] = useState<string>("all")
@@ -111,6 +109,8 @@ export default function BacklogPage() {
     }
   }, [pendingTickets])
 
+  const viewLabel = viewMode === "cards" ? "Tarjetas" : "Tabla"
+
   return (
     <Suspense fallback={<Loading />}>
       <div className="p-6 space-y-6">
@@ -121,6 +121,10 @@ export default function BacklogPage() {
             <p className="text-muted-foreground">
               Todos los tickets pendientes de asignación
             </p>
+          </div>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Badge variant="secondary">{stats.total} pendientes</Badge>
+            <Badge variant="outline">Vista {viewLabel}</Badge>
           </div>
         </div>
 
@@ -275,7 +279,7 @@ export default function BacklogPage() {
                             <Badge variant="outline" className="text-primary border-primary">
                               {ticket.category}
                             </Badge>
-                            <Badge className={`text-xs ${ticket.ticketNumber}`}>
+                            <Badge className="text-xs">
                               {ticket.ticketNumber || `#${ticket.id}`}
                             </Badge>
                           </div>
@@ -350,7 +354,7 @@ export default function BacklogPage() {
                   <Ticket className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                   <h3 className="font-semibold mb-2">No se encontraron tickets</h3>
                   <p className="text-sm text-muted-foreground">
-                    Intenta ajustar los filtros de búsqueda
+                    Intenta ajustar los filtros de búsqueda o limpiar los criterios actuales.
                   </p>
                 </CardContent>
               </Card>
@@ -367,10 +371,10 @@ export default function BacklogPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-[100px]">N Ticket</TableHead>
-                      <TableHead>Titulo</TableHead>
-                      <TableHead>Categoria</TableHead>
-                      <TableHead>Subcategoria</TableHead>
-                      <TableHead>Direccion</TableHead>
+                      <TableHead>Título</TableHead>
+                      <TableHead>Categoría</TableHead>
+                      <TableHead>Subcategoría</TableHead>
+                      <TableHead>Dirección</TableHead>
                       <TableHead>Contacto</TableHead>
                       <TableHead>Prioridad</TableHead>
                       <TableHead>Agente</TableHead>
@@ -422,7 +426,7 @@ export default function BacklogPage() {
                   <Ticket className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                   <h3 className="font-semibold mb-2">No se encontraron tickets</h3>
                   <p className="text-sm text-muted-foreground">
-                    Intenta ajustar los filtros de búsqueda
+                    Intenta ajustar los filtros de búsqueda o limpiar los criterios actuales.
                   </p>
                 </div>
               )}

@@ -5,9 +5,19 @@ import type { Ticket } from "@/types/ticket"
 
 interface MapViewProps {
   tickets: Ticket[]
+  crewLocation?: {
+    latitude: number
+    longitude: number
+    timestamp?: string
+  } | null
+  crewTrail?: Array<{
+    latitude: number
+    longitude: number
+    timestamp?: string
+  }>
 }
 
-export function MapView({ tickets }: MapViewProps) {
+export function MapView({ tickets, crewLocation = null, crewTrail = [] }: MapViewProps) {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<any>(null)
   const [leafletLoaded, setLeafletLoaded] = useState(false)
@@ -67,15 +77,23 @@ export function MapView({ tickets }: MapViewProps) {
     // Default center (San Nicolas, Argentina)
     const defaultCenter: [number, number] = [-33.3333, -60.2167]
 
-    // Calculate center based on tickets
+    const validTickets = tickets.filter((t) => t.latitude && t.longitude && (t.status || t.estado) === "open")
+    const validCrewTrail = crewTrail.filter((point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude))
+    const validCrewLocation = crewLocation && Number.isFinite(crewLocation.latitude) && Number.isFinite(crewLocation.longitude)
+    const crewPoint = validCrewLocation ? crewLocation : null
+
+    // Calculate center based on crew or tickets
     let center = defaultCenter
-    if (tickets.length > 0) {
-      const validTickets = tickets.filter((t) => t.latitude && t.longitude)
-      if (validTickets.length > 0) {
-        const centerLat = validTickets.reduce((sum, t) => sum + t.latitude, 0) / validTickets.length
-        const centerLng = validTickets.reduce((sum, t) => sum + t.longitude, 0) / validTickets.length
-        center = [centerLat, centerLng]
-      }
+    if (crewPoint) {
+      center = [crewPoint.latitude, crewPoint.longitude]
+    } else if (validCrewTrail.length > 0) {
+      const centerLat = validCrewTrail.reduce((sum, point) => sum + point.latitude, 0) / validCrewTrail.length
+      const centerLng = validCrewTrail.reduce((sum, point) => sum + point.longitude, 0) / validCrewTrail.length
+      center = [centerLat, centerLng]
+    } else if (validTickets.length > 0) {
+      const centerLat = validTickets.reduce((sum, t) => sum + t.latitude, 0) / validTickets.length
+      const centerLng = validTickets.reduce((sum, t) => sum + t.longitude, 0) / validTickets.length
+      center = [centerLat, centerLng]
     }
 
     // Create map
@@ -86,11 +104,6 @@ export function MapView({ tickets }: MapViewProps) {
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     }).addTo(map)
-
-    if (tickets.length === 0) return
-
-    const validTickets = tickets.filter((t) => t.latitude && t.longitude)
-    if (validTickets.length === 0) return
 
     // Color markers based on status
     const getMarkerColor = (status: Ticket["status"]) => {
@@ -137,10 +150,54 @@ export function MapView({ tickets }: MapViewProps) {
       latLngs.push([ticket.latitude, ticket.longitude])
     })
 
+    const createCrewIcon = () => {
+      return L.divIcon({
+        className: "crew-location-marker",
+        html: `<div style="width: 28px; height: 28px; background: #0284c7; border: 3px solid white; border-radius: 9999px; box-shadow: 0 0 0 8px rgba(14,165,233,.18), 0 4px 10px rgba(2,132,199,.35);"></div>`,
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+      })
+    }
+
+    if (validCrewTrail.length > 0) {
+      const crewTrailPoints = validCrewTrail.map((point) => [point.latitude, point.longitude]) as [number, number][]
+
+      L.polyline(crewTrailPoints, {
+        color: "#0ea5e9",
+        weight: 4,
+        opacity: 0.85,
+      }).addTo(map)
+
+      const lastPoint = validCrewTrail[validCrewTrail.length - 1]
+      L.marker([lastPoint.latitude, lastPoint.longitude], { icon: createCrewIcon() })
+        .addTo(map)
+        .bindPopup(`
+          <div style="padding: 4px;">
+            <strong>Cuadrilla en vivo</strong><br/>
+            <span style="color: #666;">${lastPoint.timestamp ? new Date(lastPoint.timestamp).toLocaleString("es-AR") : "Ubicación actual"}</span>
+          </div>
+        `)
+
+      latLngs.push(...crewTrailPoints)
+    } else if (crewPoint) {
+      L.marker([crewPoint.latitude, crewPoint.longitude], { icon: createCrewIcon() })
+        .addTo(map)
+        .bindPopup(`
+          <div style="padding: 4px;">
+            <strong>Cuadrilla en vivo</strong><br/>
+            <span style="color: #666;">${crewPoint.timestamp ? new Date(crewPoint.timestamp).toLocaleString("es-AR") : "Ubicación actual"}</span>
+          </div>
+        `)
+
+      latLngs.push([crewPoint.latitude, crewPoint.longitude])
+    }
+
     // Fit bounds
     if (latLngs.length > 1) {
       const bounds = L.latLngBounds(latLngs)
       map.fitBounds(bounds, { padding: [20, 20] })
+    } else if (latLngs.length === 1) {
+      map.setView(latLngs[0], 15)
     }
 
     return () => {
@@ -149,7 +206,7 @@ export function MapView({ tickets }: MapViewProps) {
         mapInstanceRef.current = null
       }
     }
-  }, [leafletLoaded, tickets])
+  }, [leafletLoaded, tickets, crewLocation, crewTrail])
 
   return (
     <div className="relative w-full h-[400px] rounded-lg overflow-hidden bg-muted">

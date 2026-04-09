@@ -1,22 +1,30 @@
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import { useAuth } from "../lib/auth-context"
 import { useRoutes } from "../lib/routes-context"
+import { routeService } from "../services/api"
 import { 
   LogOut, 
-  MapPin, 
   Calendar, 
   Clock, 
   CheckCircle2, 
 } from "lucide-react"
 import { Button } from "../components/ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog"
+import { Textarea } from "../components/ui/textarea"
 import { TicketCard } from "../components/ticket-card"
 import MapView from "../components/map-view"
 import { Badge } from "../components/ui/badge"
 
 export default function Home() {
   const { user, logout } = useAuth()
-  const { getCrewRoutes } = useRoutes()
+  const { getCrewRoutes, fetchRoutes } = useRoutes()
   const [currentTime, setCurrentTime] = useState(new Date())
+  const [closingRoute, setClosingRoute] = useState(false)
+  const [routeCloseDialogOpen, setRouteCloseDialogOpen] = useState(false)
+  const [routeCloseObservation, setRouteCloseObservation] = useState("")
+  const [crewLocation, setCrewLocation] = useState(null)
+  const locationWatchIdRef = useRef(null)
+  const lastSentLocationRef = useRef(null)
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 60000)
@@ -25,14 +33,99 @@ export default function Home() {
 
   const crewIdentifier = user?.crewId || user?.crew_id || user?.id
   const crewRoutes = user ? getCrewRoutes(crewIdentifier).filter((route) => route.status !== "completed") : []
+  const activeRoute = crewRoutes.find((route) => route.is_active === true || route.is_active === "true" || route.is_active === 1 || route.is_active === "1") || null
+
+  useEffect(() => {
+    setCrewLocation(null)
+    lastSentLocationRef.current = null
+
+    if (!activeRoute?.id || typeof navigator === "undefined" || !navigator.geolocation) {
+      return undefined
+    }
+
+    const shouldSendLocation = (latitude, longitude) => {
+      const previous = lastSentLocationRef.current
+      if (!previous) return true
+
+      const elapsedMs = Date.now() - previous.sentAt
+      const deltaLat = Math.abs(previous.latitude - latitude)
+      const deltaLng = Math.abs(previous.longitude - longitude)
+
+      return elapsedMs > 15000 || deltaLat > 0.00015 || deltaLng > 0.00015
+    }
+
+    const sendLocation = (position) => {
+      const latitude = position.coords.latitude
+      const longitude = position.coords.longitude
+      const timestamp = new Date(position.timestamp || Date.now()).toISOString()
+
+      setCrewLocation({ latitude, longitude, timestamp })
+
+      if (!shouldSendLocation(latitude, longitude)) {
+        return
+      }
+
+      lastSentLocationRef.current = { latitude, longitude, sentAt: Date.now() }
+
+      void routeService.sendCrewLocation(activeRoute.id, {
+        latitude,
+        longitude,
+        timestamp,
+      }).catch((error) => {
+        console.error("Error sending crew location:", error)
+      })
+    }
+
+    locationWatchIdRef.current = navigator.geolocation.watchPosition(
+      sendLocation,
+      (error) => {
+        console.error("Error getting crew location:", error)
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 10000,
+        timeout: 10000,
+      }
+    )
+
+    return () => {
+      if (locationWatchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(locationWatchIdRef.current)
+        locationWatchIdRef.current = null
+      }
+    }
+  }, [activeRoute?.id])
 
   if (!user) return null
 
-  const activeRoute = crewRoutes[0] || null
   const visibleTickets = activeRoute?.tickets.filter((ticket) => (ticket.status || ticket.estado) === "open") || []
   const totalTickets = activeRoute?.tickets.length || 0
   const completedTickets = activeRoute ? activeRoute.tickets.filter((ticket) => (ticket.status || ticket.estado) !== "open").length : 0
   const progressPercent = totalTickets > 0 ? Math.round((completedTickets / totalTickets) * 100) : 0
+
+  const handleCloseRouteUnexpected = async () => {
+    setRouteCloseObservation("")
+    setRouteCloseDialogOpen(true)
+  }
+
+  const confirmCloseRouteUnexpected = async () => {
+    if (!activeRoute) return
+
+    const observations = routeCloseObservation.trim()
+    if (!observations) return
+
+    setClosingRoute(true)
+    try {
+      await routeService.closeUnexpected(activeRoute.id, observations)
+      await fetchRoutes()
+      setRouteCloseDialogOpen(false)
+      setRouteCloseObservation("")
+    } catch (error) {
+      console.error("Error closing route unexpectedly:", error)
+    } finally {
+      setClosingRoute(false)
+    }
+  }
   
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
@@ -63,13 +156,13 @@ export default function Home() {
       </header>
 
       <main className="flex-1 overflow-auto p-4 max-w-lg mx-auto w-full">
-        {crewRoutes.length === 0 ? (
+        {!activeRoute ? (
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <div className="bg-slate-100 rounded-full p-4 mb-4">
               <CheckCircle2 className="h-10 w-10 text-slate-300" />
             </div>
-            <h2 className="text-xl font-semibold text-slate-900">No tienes rutas asignadas</h2>
-            <p className="text-slate-500 mt-2">Cuando un administrador te asigne una ruta, aparecerá aquí.</p>
+            <h2 className="text-xl font-semibold text-slate-900">No tienes rutas activas</h2>
+            <p className="text-slate-500 mt-2">Cuando una cuadrilla inicie una ruta, el mapa y el progreso aparecerán aquí.</p>
           </div>
         ) : (
           <div className="space-y-6">
@@ -106,13 +199,22 @@ export default function Home() {
                 <p className="text-xs text-slate-500 flex items-center gap-2 font-medium">
                   <Calendar className="h-3.5 w-3.5 text-primary" /> Asignada el {activeRoute?.assignedAt ? new Date(activeRoute.assignedAt).toLocaleDateString() : 'N/A'}
                 </p>
+                <div className="pt-2">
+                  <Button
+                    onClick={handleCloseRouteUnexpected}
+                    disabled={closingRoute}
+                    className="w-full h-11 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold shadow-lg shadow-amber-500/20"
+                  >
+                    {closingRoute ? "Cerrando..." : "Finalizar ruta por imprevisto"}
+                  </Button>
+                </div>
               </div>
             </div>
 
             {/* Map View */}
             <div className="bg-white rounded-xl p-1 shadow-sm border border-slate-100 overflow-hidden">
-                <MapView tickets={visibleTickets} />
-            </div>
+                <MapView tickets={activeRoute?.tickets || []} crewLocation={crewLocation} />
+              </div>
 
             {/* Ticket List */}
             <div className="space-y-4">
@@ -136,6 +238,39 @@ export default function Home() {
           </div>
         )}
       </main>
+
+      <Dialog
+        open={routeCloseDialogOpen}
+        onOpenChange={(open) => {
+          setRouteCloseDialogOpen(open)
+          if (!open) setRouteCloseObservation("")
+        }}
+      >
+        <DialogContent className="sm:max-w-lg rounded-3xl">
+          <DialogHeader>
+            <DialogTitle>Finalizar ruta por imprevisto</DialogTitle>
+            <DialogDescription>
+              Indicá qué pasó para dejar registrado el motivo en la ruta.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Textarea
+              value={routeCloseObservation}
+              onChange={(e) => setRouteCloseObservation(e.target.value)}
+              placeholder="Describí el imprevisto..."
+              className="min-h-28"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRouteCloseDialogOpen(false)} disabled={closingRoute}>
+              Cancelar
+            </Button>
+            <Button onClick={confirmCloseRouteUnexpected} disabled={closingRoute || !routeCloseObservation.trim()}>
+              {closingRoute ? "Cerrando..." : "Cerrar ruta"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
     </div>
   )

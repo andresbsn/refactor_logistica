@@ -6,11 +6,6 @@ import api from "../services/api"
 
 const RoutesContext = createContext(undefined)
 
-const DATA_VERSION = "6"
-
-// Mock data internal to context for initialization
-const mockAssignedRoutes = []
-
 const validateTicketStatus = (ticket) => {
   if (ticket.status === "closed") return "closed"
   if (ticket.estado === "closed" || ticket.estado === "cerrado") return "closed"
@@ -26,6 +21,8 @@ const withLegacyTicketState = (ticket, status) => ({
   estado: status,
 })
 
+const toBoolean = (value) => value === true || value === "true" || value === 1 || value === "1"
+
 export function RoutesProvider({ children }) {
   const { user, isLoading: authLoading } = useAuth()
   const [assignedRoutes, setAssignedRoutes] = useState([])
@@ -37,7 +34,11 @@ export function RoutesProvider({ children }) {
     ...r,
     assignedAt: r.assignedAt || r.assigned_at ? new Date(r.assignedAt || r.assigned_at) : null,
     // Calculate route status if not present
-    status: r.status || (r.is_active ? "active" : (r.planed ? "planned" : "active")),
+    status: r.status || (toBoolean(r.is_active)
+      ? "active"
+      : (r.ended_at || r.endedAt
+        ? "completed"
+        : (toBoolean(r.planed) ? "planned" : "assigned"))),
     tickets: (r.tickets || []).map((t) => {
       const resolution = t.resolution
         ? {
@@ -91,33 +92,6 @@ export function RoutesProvider({ children }) {
   useEffect(() => {
     fetchRoutes()
   }, [fetchRoutes])
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const savedVersion = localStorage.getItem("assignedRoutesVersion")
-      if (savedVersion !== DATA_VERSION) {
-        localStorage.removeItem("assignedRoutes")
-        localStorage.setItem("assignedRoutesVersion", DATA_VERSION)
-        setAssignedRoutes(mockAssignedRoutes)
-        return
-      }
-      
-      const saved = localStorage.getItem("assignedRoutes")
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved)
-          const routes = parsed.map(normalizeRoute)
-          setAssignedRoutes(routes)
-        } catch (e) {
-          console.error("Error loading saved routes:", e)
-          localStorage.removeItem("assignedRoutes")
-          setAssignedRoutes(mockAssignedRoutes)
-        }
-      } else {
-        setAssignedRoutes(mockAssignedRoutes)
-      }
-    }
-  }, [normalizeRoute])
 
   useEffect(() => {
     if (typeof window !== "undefined" && assignedRoutes.length > 0) {

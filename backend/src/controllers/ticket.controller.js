@@ -1,4 +1,5 @@
 const ticketService = require('../services/ticket.service');
+const ticketActivityService = require('../services/ticket.activity.service');
 
 const getAllTickets = async (req, res, next) => {
     try {
@@ -42,8 +43,27 @@ const getOpenTickets = async (req, res, next) => {
     }
 };
 
+const registerClosingActivity = async (req, res, next) => {
+    try {
+        const { id: ticketId } = req.params;
+        const { taskIds = [], taskNames = [] } = req.body || {};
+
+        const activities = await ticketActivityService.registerClosingActivities({
+            ticketId,
+            taskIds: Array.isArray(taskIds) ? taskIds : [],
+            taskNames: Array.isArray(taskNames) ? taskNames : [],
+            agentId: req.user.id,
+        });
+
+        res.status(201).json({ activities });
+    } catch (error) {
+        next(error);
+    }
+};
+
 module.exports = {
     getAllTickets,
     getTicketById,
     getOpenTickets,
+    registerClosingActivity,
 };

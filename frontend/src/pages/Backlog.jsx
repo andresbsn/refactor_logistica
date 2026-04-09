@@ -23,10 +23,7 @@ export default function Backlog() {
 
   const totalPages = Math.ceil(filteredTickets.length / pageSize);
   const paginatedTickets = filteredTickets.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm]);
+  const totalTickets = tickets.length;
 
   useEffect(() => {
     const fetchOpenTickets = async () => {
@@ -44,9 +41,14 @@ export default function Backlog() {
     <div className="p-4 min-h-screen bg-gradient-to-br from-slate-100 to-slate-200">
       <Card className="max-w-6xl mx-auto shadow-xl">
         <CardHeader className="flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0 pb-4">
-          <CardTitle className="text-2xl font-bold">
-            Backlog – Tickets abiertos
-          </CardTitle>
+          <div className="space-y-1">
+            <CardTitle className="text-2xl font-bold">
+              Backlog – Tickets abiertos
+            </CardTitle>
+            <p className="text-sm text-slate-500">
+              Totalizador: {totalTickets} ticket{totalTickets === 1 ? "" : "s"}
+            </p>
+          </div>
           <div className="flex bg-slate-100 p-1 rounded-lg">
             <button
               onClick={() => setViewMode("card")}
@@ -79,7 +81,10 @@ export default function Backlog() {
               type="text"
               placeholder="Buscar por nro de ticket o dirección..."
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
               className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm transition-shadow"
             />
           </div>

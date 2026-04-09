@@ -38,6 +38,7 @@ export function RouteMapDialog({ open, onOpenChange, route }: RouteMapDialogProp
     }
 
     let isMounted = true
+    let initTimer: number | null = null
 
     const initMap = async () => {
       try {
@@ -63,7 +64,7 @@ export function RouteMapDialog({ open, onOpenChange, route }: RouteMapDialogProp
         // Wait for DOM to be ready
         await new Promise((resolve) => setTimeout(resolve, 100))
 
-        if (!isMounted || !mapRef.current) return
+        if (!isMounted) return
 
         const L = window.L
         if (!L) {
@@ -78,7 +79,19 @@ export function RouteMapDialog({ open, onOpenChange, route }: RouteMapDialogProp
           mapInstanceRef.current = null
         }
 
-        const validTickets = route.tickets.filter((t) => t.latitude && t.longitude)
+        if (!mapRef.current) {
+          setError("No se pudo preparar el contenedor del mapa")
+          setIsLoading(false)
+          return
+        }
+
+        const validTickets = route.tickets
+          .map((t) => ({
+            ...t,
+            latitude: Number(t.latitude ?? t.lat),
+            longitude: Number(t.longitude ?? t.lng ?? t.lon),
+          }))
+          .filter((t) => Number.isFinite(t.latitude) && Number.isFinite(t.longitude))
         if (validTickets.length === 0) {
           setError("No hay tickets con coordenadas validas")
           setIsLoading(false)
@@ -164,7 +177,12 @@ export function RouteMapDialog({ open, onOpenChange, route }: RouteMapDialogProp
           }).addTo(map)
         }
 
-        // Fit all markers in view
+        window.setTimeout(() => {
+          if (isMounted) {
+            map.invalidateSize()
+          }
+        }, 0)
+
         if (latLngs.length > 0) {
           map.fitBounds(L.latLngBounds(latLngs), { padding: [40, 40] })
         }
@@ -179,10 +197,15 @@ export function RouteMapDialog({ open, onOpenChange, route }: RouteMapDialogProp
       }
     }
 
-    initMap()
+    initTimer = window.setTimeout(() => {
+      void initMap()
+    }, 0)
 
     return () => {
       isMounted = false
+      if (initTimer !== null) {
+        window.clearTimeout(initTimer)
+      }
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove()
         mapInstanceRef.current = null

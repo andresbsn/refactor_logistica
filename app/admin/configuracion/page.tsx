@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -57,6 +57,8 @@ export function saveSystemConfig(config: SystemConfig): void {
 export default function ConfiguracionPage() {
   const { toast } = useToast()
   const [saved, setSaved] = useState(false)
+  const [baselineConfig, setBaselineConfig] = useState<SystemConfig>(defaultConfig)
+  const saveTimeoutRef = useRef<number | null>(null)
   
   const [proximityRadius, setProximityRadius] = useState([2])
   const [maxTicketsPerRoute, setMaxTicketsPerRoute] = useState([8])
@@ -67,6 +69,7 @@ export default function ConfiguracionPage() {
 
   useEffect(() => {
     const config = getSystemConfig()
+    setBaselineConfig(config)
     setProximityRadius([config.proximityRadius])
     setMaxTicketsPerRoute([config.maxTicketsPerRoute])
     setMinTicketsForRoute([config.minTicketsForRoute])
@@ -75,8 +78,16 @@ export default function ConfiguracionPage() {
     setGroupProximityByCategory(config.groupProximityByCategory)
   }, [])
 
-  const handleSave = () => {
-    const config: SystemConfig = {
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) {
+        window.clearTimeout(saveTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  const currentConfig = useMemo<SystemConfig>(() => {
+    return {
       proximityRadius: proximityRadius[0],
       maxTicketsPerRoute: maxTicketsPerRoute[0],
       minTicketsForRoute: minTicketsForRoute[0],
@@ -84,10 +95,28 @@ export default function ConfiguracionPage() {
       prioritizeHighPriority,
       groupProximityByCategory,
     }
-    
-    saveSystemConfig(config)
+  }, [proximityRadius, maxTicketsPerRoute, minTicketsForRoute, autoGenerateRoutes, prioritizeHighPriority, groupProximityByCategory])
+
+  const hasChanges = useMemo(() => {
+    return (
+      currentConfig.proximityRadius !== baselineConfig.proximityRadius ||
+      currentConfig.maxTicketsPerRoute !== baselineConfig.maxTicketsPerRoute ||
+      currentConfig.minTicketsForRoute !== baselineConfig.minTicketsForRoute ||
+      currentConfig.autoGenerateRoutes !== baselineConfig.autoGenerateRoutes ||
+      currentConfig.prioritizeHighPriority !== baselineConfig.prioritizeHighPriority ||
+      currentConfig.groupProximityByCategory !== baselineConfig.groupProximityByCategory
+    )
+  }, [currentConfig, baselineConfig])
+
+  const handleSave = () => {
+    if (saveTimeoutRef.current) {
+      window.clearTimeout(saveTimeoutRef.current)
+    }
+
+    saveSystemConfig(currentConfig)
+    setBaselineConfig(currentConfig)
     setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+    saveTimeoutRef.current = window.setTimeout(() => setSaved(false), 2000)
     
     toast({
       title: "Configuracion guardada",
@@ -102,8 +131,10 @@ export default function ConfiguracionPage() {
     setAutoGenerateRoutes(defaultConfig.autoGenerateRoutes)
     setPrioritizeHighPriority(defaultConfig.prioritizeHighPriority)
     setGroupProximityByCategory(defaultConfig.groupProximityByCategory)
-    
+
     saveSystemConfig(defaultConfig)
+    setBaselineConfig(defaultConfig)
+    setSaved(false)
     
     toast({
       title: "Configuracion restablecida",
@@ -116,28 +147,31 @@ export default function ConfiguracionPage() {
       {/* Header */}
       <div className="border-b bg-card">
         <div className="px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold">Configuracion de Rutas</h1>
-              <p className="text-sm text-muted-foreground">
-                Ajustes para la generacion de rutas sugeridas
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={handleReset}>
-                <RotateCcw className="h-4 w-4 mr-2" />
-                Restablecer
-              </Button>
-              <Button onClick={handleSave} className={saved ? "bg-green-600 hover:bg-green-700" : ""}>
-                {saved ? (
-                  <>
-                    <CheckCircle className="h-4 w-4 mr-2" />
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h1 className="text-2xl font-bold">Configuración de Rutas</h1>
+                <p className="text-sm text-muted-foreground">
+                Ajustes para la generación de rutas sugeridas
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant={hasChanges ? "secondary" : "outline"} className={hasChanges ? "" : "opacity-70"}>
+                  {hasChanges ? "Cambios pendientes" : "Sin cambios"}
+                </Badge>
+                <Button variant="outline" onClick={handleReset}>
+                  <RotateCcw className="h-4 w-4 mr-2" />
+                  Restablecer
+                </Button>
+                <Button onClick={handleSave} className={saved ? "bg-green-600 hover:bg-green-700" : ""} disabled={!hasChanges}>
+                  {saved ? (
+                    <>
+                      <CheckCircle className="h-4 w-4 mr-2" />
                     Guardado
                   </>
                 ) : (
                   <>
                     <Save className="h-4 w-4 mr-2" />
-                    Guardar Cambios
+                    Guardar cambios
                   </>
                 )}
               </Button>
@@ -155,17 +189,17 @@ export default function ConfiguracionPage() {
                 Algoritmos de Rutas
               </CardTitle>
               <CardDescription>
-                Configura como se generan las rutas sugeridas automaticamente
+                Configura cómo se generan las rutas sugeridas automáticamente
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <Label>Generacion automatica de rutas</Label>
-                  <p className="text-sm text-muted-foreground">
+                    <Label>Generación automática de rutas</Label>
+                    <p className="text-sm text-muted-foreground">
                     Generar rutas sugeridas cuando se crean nuevos tickets
-                  </p>
-                </div>
+                    </p>
+                  </div>
                 <Switch
                   checked={autoGenerateRoutes}
                   onCheckedChange={setAutoGenerateRoutes}
@@ -176,7 +210,7 @@ export default function ConfiguracionPage() {
               
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <Label>Radio de cercania (km)</Label>
+                  <Label>Radio de cercanía (km)</Label>
                   <Badge variant="secondary">{proximityRadius[0]} km</Badge>
                 </div>
                 <Slider
@@ -187,16 +221,16 @@ export default function ConfiguracionPage() {
                   step={0.5}
                   className="w-full"
                 />
-                <p className="text-sm text-muted-foreground">
-                  Distancia maxima entre tickets para agruparlos en una ruta por cercania
-                </p>
-              </div>
+                  <p className="text-sm text-muted-foreground">
+                    Distancia máxima entre tickets para agruparlos en una ruta por cercanía
+                  </p>
+                </div>
               
               <Separator />
               
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <Label>Maximo de tickets por ruta</Label>
+                  <Label>Máximo de tickets por ruta</Label>
                   <Badge variant="secondary">{maxTicketsPerRoute[0]} tickets</Badge>
                 </div>
                 <Slider
@@ -207,16 +241,16 @@ export default function ConfiguracionPage() {
                   step={1}
                   className="w-full"
                 />
-                <p className="text-sm text-muted-foreground">
-                  Cantidad maxima de tickets que puede contener una ruta sugerida
-                </p>
-              </div>
+                  <p className="text-sm text-muted-foreground">
+                    Cantidad máxima de tickets que puede contener una ruta sugerida
+                  </p>
+                </div>
               
               <Separator />
               
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <Label>Minimo de tickets para crear ruta</Label>
+                  <Label>Mínimo de tickets para crear ruta</Label>
                   <Badge variant="secondary">{minTicketsForRoute[0]} tickets</Badge>
                 </div>
                 <Slider
@@ -227,18 +261,18 @@ export default function ConfiguracionPage() {
                   step={1}
                   className="w-full"
                 />
-                <p className="text-sm text-muted-foreground">
-                  Cantidad minima de tickets necesarios para sugerir una ruta
-                </p>
-              </div>
+                  <p className="text-sm text-muted-foreground">
+                    Cantidad mínima de tickets necesarios para sugerir una ruta
+                  </p>
+                </div>
               
               <Separator />
               
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <Label>Agrupar cercania por categoria</Label>
+                  <Label>Agrupar cercanía por categoría</Label>
                   <p className="text-sm text-muted-foreground">
-                    Las rutas por cercania tambien agruparan tickets del mismo tipo
+                    Las rutas por cercanía también agruparán tickets del mismo tipo
                   </p>
                 </div>
                 <Switch
@@ -268,23 +302,35 @@ export default function ConfiguracionPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Route className="h-5 w-5 text-primary" />
-                Resumen de Configuracion
+                Resumen de configuración
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 <div className="text-center p-4 bg-muted/50 rounded-lg">
-                  <p className="text-2xl font-bold text-primary">{proximityRadius[0]} km</p>
-                  <p className="text-sm text-muted-foreground">Radio cercania</p>
+                  <p className="text-2xl font-bold text-primary">{currentConfig.proximityRadius} km</p>
+                  <p className="text-sm text-muted-foreground">Radio cercanía</p>
                 </div>
                 <div className="text-center p-4 bg-muted/50 rounded-lg">
-                  <p className="text-2xl font-bold text-primary">{maxTicketsPerRoute[0]}</p>
-                  <p className="text-sm text-muted-foreground">Max tickets/ruta</p>
+                  <p className="text-2xl font-bold text-primary">{currentConfig.maxTicketsPerRoute}</p>
+                  <p className="text-sm text-muted-foreground">Máx. tickets/ruta</p>
                 </div>
                 <div className="text-center p-4 bg-muted/50 rounded-lg">
-                  <p className="text-2xl font-bold text-primary">{minTicketsForRoute[0]}</p>
-                  <p className="text-sm text-muted-foreground">Min tickets/ruta</p>
+                  <p className="text-2xl font-bold text-primary">{currentConfig.minTicketsForRoute}</p>
+                  <p className="text-sm text-muted-foreground">Mín. tickets/ruta</p>
                 </div>
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Badge variant={currentConfig.autoGenerateRoutes ? "default" : "secondary"}>
+                  {currentConfig.autoGenerateRoutes ? "Auto generación activa" : "Auto generación desactivada"}
+                </Badge>
+                <Badge variant={currentConfig.prioritizeHighPriority ? "default" : "secondary"}>
+                  {currentConfig.prioritizeHighPriority ? "Prioriza urgentes" : "No prioriza urgentes"}
+                </Badge>
+                <Badge variant={currentConfig.groupProximityByCategory ? "default" : "secondary"}>
+                  {currentConfig.groupProximityByCategory ? "Agrupa por categoría" : "Sin agrupación por categoría"}
+                </Badge>
               </div>
             </CardContent>
           </Card>

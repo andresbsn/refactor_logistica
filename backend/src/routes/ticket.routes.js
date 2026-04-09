@@ -10,6 +10,7 @@ router.use(authMiddleware);
 router.get('/', ticketController.getAllTickets);
 router.get('/open', ticketController.getOpenTickets);
 router.get('/:id', ticketController.getTicketById);
+router.post('/:id/activities', ticketController.registerClosingActivity);
 router.get('/:id/images', async (req, res, next) => {
     try {
         const { id } = req.params;

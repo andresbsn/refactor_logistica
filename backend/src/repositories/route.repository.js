@@ -265,6 +265,119 @@ const deletePlannedRoutes = async (userId) => {
     }
 };
 
+const addTicketsToRoute = async (routeId, ticketIds) => {
+    if (!routeId || !Array.isArray(ticketIds) || ticketIds.length === 0) {
+        return { added: 0 };
+    }
+
+    const client = await db.pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        let added = 0;
+        for (const ticketId of ticketIds) {
+            const existingCheck = await client.query(`
+                SELECT 1 FROM log_route_ticket 
+                WHERE route_id = $1 AND ticket_id = $2
+            `, [routeId, ticketId]);
+
+            if (existingCheck.rows.length === 0) {
+                await client.query(`
+                    INSERT INTO log_route_ticket (route_id, ticket_id)
+                    VALUES ($1, $2)
+                `, [routeId, ticketId]);
+                added++;
+            }
+        }
+
+        await client.query('COMMIT');
+        return { added };
+    } catch (e) {
+        await client.query('ROLLBACK');
+        throw e;
+    } finally {
+        client.release();
+    }
+};
+
+const getBacklogTickets = async (userId, routeId, { limit = 100, offset = 0, search, type, priority } = {}) => {
+    const normalizedLimit = Math.min(parseInt(limit) || 100, 1000);
+    const normalizedOffset = Math.max(parseInt(offset) || 0, 0);
+
+    let filters = [];
+    let params = [];
+
+    const baseConditions = [
+        't.borrado IS NULL',
+        't.latitude IS NOT NULL',
+        't.longitude IS NOT NULL',
+        't.reiterado IS NULL',
+        't.cerrado IS NULL',
+        "t.estado = 'open'"
+    ];
+    filters.push(baseConditions.join(' AND '));
+
+    if (userId) {
+        filters.push(`t.tipo IN (SELECT tg.id_tipo FROM tipos_grupos tg JOIN agentes_gruposagentes ag ON tg.id_grupo = ag.id_grupoagente_fk WHERE ag.id_agente_fk = $${params.length + 1})`);
+        params.push(userId);
+    }
+
+    if (routeId) {
+        filters.push(`NOT EXISTS (SELECT 1 FROM log_route_ticket lrt JOIN log_routes r ON lrt.route_id = r.id WHERE lrt.ticket_id = t.id AND r.deleted_at IS NULL)`);
+    }
+
+    if (type) {
+        filters.push(`t.tipo = $${params.length + 1}`);
+        params.push(type);
+    }
+
+    if (priority) {
+        filters.push(`t.prioridad = $${params.length + 1}`);
+        params.push(priority);
+    }
+
+    if (search) {
+        const searchValue = `%${search}%`;
+        filters.push(`(t.asunto ILIKE $${params.length + 1} OR t.nro_ticket::text ILIKE $${params.length + 1})`);
+        params.push(searchValue);
+    }
+
+    const whereClause = filters.join(' AND ');
+
+    const query = `
+        SELECT 
+            t.id, 
+            t.nro_ticket, 
+            t.asunto, 
+            t.dire_completa, 
+            t.barrio, 
+            t.latitude, 
+            t.longitude, 
+            t.estado, 
+            t.prioridad, 
+            t.tipo, 
+            t.subtipo, 
+            t.creado,
+            t.contacto,
+            tipo.texto as tipo_nombre, 
+            sub.texto as subtipo_nombre,
+            c.celular as contacto_celular,
+            c.telefono as contacto_telefono,
+            c.nombre as contacto_nombre
+        FROM tickets t
+        LEFT JOIN tipos tipo ON t.tipo = tipo.id
+        LEFT JOIN subtipos sub ON t.subtipo = sub.id
+        LEFT JOIN contactos c ON t.contacto = c.id
+        WHERE ${whereClause}
+        ORDER BY t.creado DESC
+        LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+    `;
+
+    params.push(normalizedLimit, normalizedOffset);
+    const { rows } = await db.query(query, params);
+    return rows;
+};
+
 const confirmRoute = async (id, data) => {
     const { crew_id, vehicle_id } = data;
 
@@ -554,6 +667,8 @@ module.exports = {
     getTicketStatus,
     getVehicles,
     startRoute,
-    findForLogin
+    findForLogin,
+    addTicketsToRoute,
+    getBacklogTickets
 };
 

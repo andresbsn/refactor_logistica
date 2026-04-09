@@ -1,7 +1,44 @@
 const db = require('../config/db');
+const { createSqlFilterBuilder } = require('../utils/sql-filter-builder');
 
 const findAll = async ({ limit = 1000, offset = 0, status, type, priority, neighborhood, search, userId, hasCoordinates }) => {
-    let query = `
+    const filters = createSqlFilterBuilder({
+        baseConditions: ['t.borrado IS NULL'],
+    });
+
+    if (hasCoordinates) {
+        filters.addRaw('t.latitude IS NOT NULL AND t.longitude IS NOT NULL');
+    }
+
+    if (userId) {
+        filters.add(
+            't.tipo IN (SELECT tg.id_tipo FROM tipos_grupos tg JOIN agentes_gruposagentes ag ON tg.id_grupo = ag.id_grupoagente_fk WHERE ag.id_agente_fk = ?)',
+            userId,
+        );
+    }
+
+    if (status) {
+        filters.add('t.estado = ?', status);
+    }
+
+    if (type) {
+        filters.add('t.tipo = ?', type);
+    }
+
+    if (priority) {
+        filters.add('t.prioridad = ?', priority);
+    }
+
+    if (neighborhood) {
+        filters.add('t.barrio = ?', neighborhood);
+    }
+
+    if (search) {
+        const searchValue = `%${search}%`;
+        filters.add('(t.asunto ILIKE ? OR t.nro_ticket::text ILIKE ?)', [searchValue, searchValue]);
+    }
+
+    const query = `
         SELECT 
             t.*, 
             tipo.texto as tipo_nombre, 
@@ -13,51 +50,16 @@ const findAll = async ({ limit = 1000, offset = 0, status, type, priority, neigh
         LEFT JOIN tipos tipo ON t.tipo = tipo.id
         LEFT JOIN subtipos sub ON t.subtipo = sub.id
         LEFT JOIN contactos c ON t.contacto = c.id
-        WHERE t.borrado IS NULL
+        WHERE ${filters.build()}
     `;
-    const params = [];
-    let paramIndex = 1;
 
-    if (hasCoordinates) {
-        query += ` AND t.latitude IS NOT NULL AND t.longitude IS NOT NULL`;
-    }
+    const params = [...filters.params, limit, offset];
+    const limitParamIndex = filters.params.length + 1;
+    const offsetParamIndex = limitParamIndex + 1;
 
-    if (userId) {
-        query += ` AND t.tipo IN (
-            SELECT tg.id_tipo 
-            FROM tipos_grupos tg
-            JOIN agentes_gruposagentes ag ON tg.id_grupo = ag.id_grupoagente_fk
-            WHERE ag.id_agente_fk = $${paramIndex++}
-        )`;
-        params.push(userId);
-    }
+    const paginatedQuery = `${query} ORDER BY t.creado DESC LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}`;
 
-    if (status) {
-        query += ` AND t.estado = $${paramIndex++}`;
-        params.push(status);
-    }
-    if (type) {
-        query += ` AND t.tipo = $${paramIndex++}`;
-        params.push(type);
-    }
-    if (priority) {
-        query += ` AND t.prioridad = $${paramIndex++}`;
-        params.push(priority);
-    }
-    if (neighborhood) {
-        query += ` AND t.barrio = $${paramIndex++}`;
-        params.push(neighborhood);
-    }
-    if (search) {
-        query += ` AND (t.asunto ILIKE $${paramIndex} OR t.nro_ticket::text ILIKE $${paramIndex})`;
-        params.push(`%${search}%`);
-        paramIndex++;
-    }
-
-    query += ` ORDER BY t.creado DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
-    params.push(limit, offset);
-
-    const { rows } = await db.query(query, params);
+    const { rows } = await db.query(paginatedQuery, params);
     return rows;
 };
 

@@ -7,8 +7,30 @@ import {
   DialogFooter,
 } from "../ui/dialog"
 import { Button } from "../ui/button"
-import { MapPin, Info, Navigation, Map as MapIcon } from "lucide-react"
+import { Info, Navigation, Map as MapIcon } from "lucide-react"
 import { Badge } from "../ui/badge"
+
+const isValidCoordinate = (value) => Number.isFinite(Number(value))
+
+const normalizePoint = (point) => {
+  if (!point) return null
+
+  const latitude = Number(point.latitude ?? point.lat)
+  const longitude = Number(point.longitude ?? point.lng ?? point.lon)
+
+  return isValidCoordinate(latitude) && isValidCoordinate(longitude)
+    ? { latitude, longitude }
+    : null
+}
+
+const normalizeTicketPoint = (ticket) => {
+  if (!ticket) return null
+
+  return normalizePoint({
+    latitude: ticket.latitude ?? ticket.lat ?? ticket.y,
+    longitude: ticket.longitude ?? ticket.lng ?? ticket.lon ?? ticket.x,
+  })
+}
 
 export default function RouteMapDialog({
   open,
@@ -17,11 +39,14 @@ export default function RouteMapDialog({
 }) {
   const mapRef = useRef(null)
   const mapInstanceRef = useRef(null)
+  const markersLayerRef = useRef(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [leafletLoaded, setLeafletLoaded] = useState(false)
+  const [leafletLoaded, setLeafletLoaded] = useState(() => typeof window !== "undefined" && Boolean(window.L))
 
   useEffect(() => {
+    let loadedFallbackTimer = null
+
     if (open) {
       if (!document.querySelector('link[href*="leaflet.css"]')) {
         const link = document.createElement("link")
@@ -34,55 +59,87 @@ export default function RouteMapDialog({
         const script = document.createElement("script")
         script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         script.onload = () => setLeafletLoaded(true)
+        script.onerror = () => setError("No se pudo cargar la librería de mapas")
         document.head.appendChild(script)
       } else {
-        setLeafletLoaded(true)
+        loadedFallbackTimer = window.setTimeout(() => setLeafletLoaded(true), 0)
+      }
+    }
+
+    return () => {
+      if (loadedFallbackTimer) {
+        window.clearTimeout(loadedFallbackTimer)
       }
     }
   }, [open])
 
   useEffect(() => {
-    if (open && leafletLoaded && mapRef.current && route) {
-      const L = window.L
-      setIsLoading(true)
-      setError(null)
+    if (!open || !leafletLoaded || !route) return undefined
 
+    const L = window.L
+    if (!L) return undefined
+
+    let cancelled = false
+    let initTimer = null
+
+    const getPriorityColor = (priority) => {
+      switch (priority) {
+        case "high":
+          return "#ef4444"
+        case "medium":
+          return "#f59e0b"
+        case "low":
+          return "#22c55e"
+        default:
+          return "#3b82f6"
+      }
+    }
+
+    const initMap = async () => {
       try {
+        setIsLoading(true)
+        setError(null)
+
         if (mapInstanceRef.current) {
           mapInstanceRef.current.remove()
           mapInstanceRef.current = null
         }
 
-        const validTickets = route.tickets.filter((t) => t.latitude && t.longitude)
-        if (validTickets.length === 0) {
-          setError("No hay tickets con coordenadas válidas para mostrar en el mapa")
+        const validTickets = route.tickets
+          .map((ticket) => ({ ...ticket, coordinates: normalizeTicketPoint(ticket) }))
+          .filter((ticket) => ticket.coordinates)
+
+        if (cancelled) return
+
+        if (!mapRef.current) {
+          setError("No se pudo preparar el contenedor del mapa")
           setIsLoading(false)
           return
         }
 
-        const latLngs = validTickets.map(t => [t.latitude, t.longitude])
-        const bounds = L.latLngBounds(latLngs)
+        if (validTickets.length === 0) {
+          setError("No hay coordenadas disponibles para mostrar en el mapa")
+          setIsLoading(false)
+          return
+        }
+
+        const ticketLatLngs = validTickets.map((ticket) => [ticket.coordinates.latitude, ticket.coordinates.longitude])
+        const boundsLatLngs = [...ticketLatLngs]
+
+        const bounds = L.latLngBounds(boundsLatLngs)
         const center = bounds.getCenter()
 
         const map = L.map(mapRef.current).setView(center, 13)
         mapInstanceRef.current = map
+        markersLayerRef.current = L.layerGroup().addTo(map)
 
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
           attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
         }).addTo(map)
 
-        const getPriorityColor = (priority) => {
-          switch (priority) {
-            case "high": return "#ef4444"
-            case "medium": return "#f59e0b"
-            case "low": return "#22c55e"
-            default: return "#3b82f6"
-          }
-        }
-
         validTickets.forEach((ticket, idx) => {
           const color = getPriorityColor(ticket.priority)
-          
+
           const icon = L.divIcon({
             className: "custom-div-icon",
             html: `<div style="
@@ -103,37 +160,42 @@ export default function RouteMapDialog({
             iconAnchor: [12, 12],
           })
 
-          L.marker([ticket.latitude, ticket.longitude], { icon })
-            .addTo(map)
+          L.marker([ticket.coordinates.latitude, ticket.coordinates.longitude], { icon })
+            .addTo(markersLayerRef.current)
             .bindPopup(`
               <div style="font-family: inherit; font-size: 13px;">
                 <div style="font-weight: bold; margin-bottom: 2px;">${ticket.ticketNumber || `#${ticket.id}`}</div>
                 <div style="font-weight: 500;">${ticket.asunto || ticket.title}</div>
                 <div style="color: #666; font-size: 11px; margin-top: 4px;">
-                  ${ticket.dire_completa || ticket.address} ${ticket.barrio ? `<br/><b>Brio:</b> ${ticket.barrio}` : ''}
+                  ${ticket.dire_completa || ticket.address} ${ticket.barrio ? `<br/><b>Brio:</b> ${ticket.barrio}` : ""}
                 </div>
                 <div style="font-size: 10px; margin-top: 4px; color: #3b82f6; font-weight: bold;">
-                  ${ticket.tipo || ''} ${ticket.subtipo ? `| ${ticket.subtipo}` : ''}
+                  ${ticket.tipo || ""} ${ticket.subtipo ? `| ${ticket.subtipo}` : ""}
                 </div>
               </div>
             `)
         })
 
-        if (latLngs.length > 1) {
+        if (ticketLatLngs.length > 1) {
           map.fitBounds(bounds, { padding: [30, 30] })
         } else {
-          map.setView(latLngs[0], 15)
+          map.setView(boundsLatLngs[0], 15)
         }
 
-        // Draw line between markers to show route
-        if (latLngs.length > 1) {
-          L.polyline(latLngs, {
+        if (ticketLatLngs.length > 1) {
+          L.polyline(ticketLatLngs, {
             color: "#3b82f6",
             weight: 3,
             opacity: 0.6,
-            dashArray: "5, 10"
+            dashArray: "5, 10",
           }).addTo(map)
         }
+
+        window.setTimeout(() => {
+          if (!cancelled) {
+            map.invalidateSize()
+          }
+        }, 0)
 
         setIsLoading(false)
       } catch (err) {
@@ -143,7 +205,20 @@ export default function RouteMapDialog({
       }
     }
 
+    initTimer = window.setTimeout(() => {
+      void initMap()
+    }, 0)
+
     return () => {
+      cancelled = true
+      if (initTimer) {
+        window.clearTimeout(initTimer)
+      }
+      if (markersLayerRef.current) {
+        markersLayerRef.current.clearLayers()
+        markersLayerRef.current = null
+      }
+
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove()
         mapInstanceRef.current = null
@@ -171,22 +246,22 @@ export default function RouteMapDialog({
               </div>
             </div>
             <div className="flex gap-2">
-               <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary font-bold px-3 py-1">
-                 {route.type === "proximity" ? "Enfoque: Cercanía" : "Enfoque: Prioridad"}
-               </Badge>
+              <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary font-bold px-3 py-1">
+                {route.type === "proximity" ? "Enfoque: Cercanía" : "Enfoque: Prioridad"}
+              </Badge>
             </div>
           </div>
         </DialogHeader>
 
         <div className="flex-1 relative bg-slate-100">
           <div ref={mapRef} className="absolute inset-0 z-0" />
-          
+
           {(isLoading || !leafletLoaded) && !error && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-muted/20 backdrop-blur-[1px]">
-               <div className="bg-white p-4 rounded-lg shadow-lg flex items-center gap-3">
-                 <div className="animate-spin h-5 w-5 border-2 border-primary border-t-transparent rounded-full" />
-                 <span className="text-sm font-medium">Cargando mapa interactivo...</span>
-               </div>
+              <div className="bg-white p-4 rounded-lg shadow-lg flex items-center gap-3">
+                <div className="animate-spin h-5 w-5 border-2 border-primary border-t-transparent rounded-full" />
+                <span className="text-sm font-medium">Cargando mapa interactivo...</span>
+              </div>
             </div>
           )}
 

@@ -31,7 +31,7 @@ import {
   User
 } from "lucide-react"
 import { Badge } from "../ui/badge"
-import { catalogService, uploadService, routeService } from "../../services/api"
+import { catalogService, uploadService, routeService, ticketService } from "../../services/api"
 import { externalService } from "../../services/external"
 import { useAuth } from "../../lib/auth-context"
 import { cn } from "../../lib/utils"
@@ -187,6 +187,27 @@ export default function TicketResolveDialog({
     }
   }
 
+  const getSelectedTaskPayload = () => {
+    return selectedTasks
+      .map((taskName) => {
+        const taskItem = availableTasks.find((task) => {
+          const value = typeof task === 'string' ? task : (task.id || task.name || task.texto)
+          const label = typeof task === 'string' ? task : (task.name || task.texto)
+          return value === taskName || label === taskName
+        })
+
+        if (typeof taskItem === 'string') {
+          return { taskId: taskItem, taskName: taskItem }
+        }
+
+        return {
+          taskId: taskItem?.id || taskItem?.name || taskItem?.texto || null,
+          taskName: taskItem?.name || taskItem?.texto || taskName,
+        }
+      })
+      .filter((task) => task.taskId || task.taskName)
+  }
+
 
   const handleRemoveTask = (task) => {
     setSelectedTasks((prev) => prev.filter((t) => t !== task))
@@ -287,6 +308,14 @@ export default function TicketResolveDialog({
     try {
       setUploadingAfter(true)
       setUploadingExtras(true)
+
+      const tasksPayload = getSelectedTaskPayload()
+      if (tasksPayload.length > 0) {
+        await ticketService.registerClosingActivities(ticket.id, {
+          taskIds: tasksPayload.map((task) => task.taskId),
+          taskNames: tasksPayload.map((task) => task.taskName),
+        })
+      }
 
       const afterFile = await fetch(afterImage).then(r => r.blob())
       const afterExt = afterFile.type.split('/').pop() || 'jpg'
